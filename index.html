@@ -165,6 +165,9 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 /* DIVIDER */
 .divider { height: 1px; background: var(--border); margin: 12px 0; }
 
+/* CAT GRID */
+.cat-grid-item:hover { border-color: var(--primary) !important; background: var(--surface3) !important; }
+
 /* IMPORT BANNER */
 .import-banner { background: linear-gradient(135deg, #e8f0ff, #f0e8ff); border: 1px solid #b8c9d9; border-radius: var(--radius); padding: 14px; margin-bottom: 14px; text-align: center; }
 </style>
@@ -228,25 +231,12 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
     </div>
     <div class="form-group" id="categoryRow">
       <label class="form-label">Category</label>
-      <select class="form-select" id="addCategory">
-        <option value="Maintenance">Maintenance</option>
-        <option value="Cleaning">Cleaning</option>
-        <option value="Electricity">Electricity</option>
-        <option value="TV/Phone/Internet">Internet / Phone</option>
-        <option value="Groceries">Supplies</option>
-        <option value="Services">Services</option>
-        <option value="Furniture">Furniture</option>
-        <option value="Household supplies">Household Supplies</option>
-        <option value="Heat/gas">Gas</option>
-        <option value="Water">Water</option>
-        <option value="Rent - 8A">Rent - 8A</option>
-        <option value="Rent - 17A">Rent - 17A</option>
-        <option value="Rent - 28A">Rent - 28A</option>
-        <option value="Rent - Zayed 2000">Rent - Zayed 2000</option>
-        <option value="Gifts">Gifts</option>
-        <option value="General">General</option>
-        <option value="Other">Other</option>
-      </select>
+      <div id="catGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px"></div>
+      <input type="hidden" id="addCategory" value="Groceries">
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <input type="text" class="form-input" id="customCatInput" placeholder="Or type custom category..." style="flex:1">
+        <button type="button" class="btn btn-outline btn-sm" onclick="addCustomCat()" style="flex-shrink:0">+ Add</button>
+      </div>
     </div>
     <div class="form-group" id="aptRow" style="display:none">
       <label class="form-label">Apartment</label>
@@ -265,9 +255,9 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 
   <!-- PAID BY -->
   <div class="card" id="paidBySection">
-    <div class="section-title">Who Paid?</div>
+    <div class="section-title" id="paidByTitle">Who Paid?</div>
     <div id="paidByRows"></div>
-    <div style="font-size:11px;color:var(--text3);margin-top:6px">أدخل المبلغ الذي دفعه كل شخص</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px" id="paidByHint">Enter how much each person paid</div>
   </div>
 
   <!-- SPLIT -->
@@ -407,6 +397,81 @@ let splitType = 'equal';
 let currentGroupMembers = [];
 let selectedFile = null;
 let selectedFileBase64 = null;
+
+const CATEGORIES = [
+  { value: 'Groceries', label: 'Groceries', icon: '🛒' },
+  { value: 'Dining out', label: 'Dining', icon: '🍽️' },
+  { value: 'Electricity', label: 'Electricity', icon: '⚡' },
+  { value: 'TV/Phone/Internet', label: 'Internet', icon: '📶' },
+  { value: 'Maintenance', label: 'Maintenance', icon: '🔧' },
+  { value: 'Cleaning', label: 'Cleaning', icon: '🧹' },
+  { value: 'Services', label: 'Services', icon: '🛠️' },
+  { value: 'Furniture', label: 'Furniture', icon: '🛋️' },
+  { value: 'Household supplies', label: 'Household', icon: '🏠' },
+  { value: 'Heat/gas', label: 'Gas/Heat', icon: '🔥' },
+  { value: 'Gas/fuel', label: 'Fuel', icon: '⛽' },
+  { value: 'Water', label: 'Water', icon: '💧' },
+  { value: 'Music', label: 'Music', icon: '🎵' },
+  { value: 'Games', label: 'Games', icon: '🎮' },
+  { value: 'Sports', label: 'Sports', icon: '⚽' },
+  { value: 'Gifts', label: 'Gifts', icon: '🎁' },
+  { value: 'Medical expenses', label: 'Medical', icon: '🏥' },
+  { value: 'Electronics', label: 'Electronics', icon: '📱' },
+  { value: 'Hotel', label: 'Hotel', icon: '🏨' },
+  { value: 'Mortgage', label: 'Mortgage', icon: '🏦' },
+  { value: 'Insurance', label: 'Insurance', icon: '🛡️' },
+  { value: 'General', label: 'General', icon: '📋' },
+  { value: 'Other', label: 'Other', icon: '💼' },
+];
+
+let customCategories = []; // loaded from Google Sheet
+
+function renderCatGrid(selected) {
+  const all = [...CATEGORIES, ...customCategories.map(c => ({value:c, label:c, icon:'🏷️'}))];
+  const grid = document.getElementById('catGrid');
+  if(!grid) return;
+  grid.innerHTML = all.map(c => `
+    <div onclick="selectCat('${c.value}')" style="
+      padding:8px 4px; border-radius:10px; text-align:center; cursor:pointer;
+      border:2px solid ${selected===c.value ? 'var(--primary)' : 'var(--border)'};
+      background:${selected===c.value ? 'var(--surface3)' : 'var(--surface)'};
+      transition:all 0.15s;
+    ">
+      <div style="font-size:20px;margin-bottom:2px">${c.icon}</div>
+      <div style="font-size:9px;font-weight:700;color:${selected===c.value ? 'var(--primary)' : 'var(--text2)'}">${c.label}</div>
+    </div>`).join('');
+}
+
+function selectCat(val) {
+  document.getElementById('addCategory').value = val;
+  renderCatGrid(val);
+}
+
+async function addCustomCat() {
+  const input = document.getElementById('customCatInput');
+  const val = input.value.trim();
+  if(!val) return;
+  if(!customCategories.includes(val)) {
+    try {
+      await writeToSheet('Categories', [[val]]);
+      customCategories.push(val);
+      showToast('✅ Category added!');
+    } catch(e) {
+      showToast('❌ Could not save category');
+    }
+  }
+  input.value = '';
+  selectCat(val);
+  renderCatGrid(val);
+}
+
+function getCatIcon(cat) {
+  if(!cat) return '💼';
+  const found = CATEGORIES.find(c => c.value === cat);
+  if(found) return found.icon;
+  if(cat.startsWith('Rent')) return '🏠';
+  return '🏷️';
+}
 let statsMonth = null;
 let statsGroupFilter = 'all';
 let expGroupFilter = 'all';
@@ -461,6 +526,15 @@ function parseSheetDate(val) {
 
 async function loadAllData() {
   try {
+    // Load custom categories from sheet
+    try {
+      const catRows = await fetchSheet('Categories!A2:A100');
+      customCategories = catRows.filter(r=>r[0]).map(r=>r[0].trim());
+      console.log(`Loaded ${customCategories.length} custom categories`);
+    } catch(e) {
+      customCategories = [];
+    }
+
     // Load groups from sheet
     try {
       const gRows = await fetchSheet('Groups!A2:E20');
@@ -609,7 +683,7 @@ function renderExpItem(e) {
   const isPayment = e.type === 'payment';
   const isIncome = e.type === 'income';
   const catClass = isPayment ? 'payment-badge' : '';
-  const typeIcon = isPayment ? '💰' : isIncome ? '🏠' : '💸';
+  const typeIcon = isPayment ? '💰' : isIncome ? '🏠' : getCatIcon(e.category);
   const groupTag = getGroupTag(e.group);
 
   return `<div class="expense-item" onclick="openExpModal('${e.id}')">
@@ -839,6 +913,18 @@ function setEntryType(type, btn) {
   document.getElementById('categoryRow').style.display = type==='income' ? 'none' : 'block';
   document.getElementById('aptRow').style.display = type==='income' ? 'block' : 'none';
   if(type==='income') document.getElementById('addCategory').value = 'Rent - 8A';
+  // Update labels for income
+  if(type==='income') {
+    document.getElementById('paidByTitle').textContent = 'Who Received the Income?';
+    document.getElementById('paidByHint').textContent = 'Enter how much each person received';
+    document.querySelector('#splitTypePills').closest('.card').querySelector('.section-title').textContent = 'How is it split / owed?';
+  } else {
+    document.getElementById('paidByTitle').textContent = 'Who Paid?';
+    document.getElementById('paidByHint').textContent = 'Enter how much each person paid';
+    if(document.querySelector('#splitTypePills')) {
+      document.querySelector('#splitTypePills').closest('.card').querySelector('.section-title').textContent = 'Split';
+    }
+  }
   updatePaidByRows();
 }
 
@@ -855,6 +941,10 @@ function updateGroupMembers() {
   currentGroupMembers = group ? group.members : [];
   updatePaidByRows();
   updateSplitRows();
+  // Initialize category grid if not done yet
+  if(document.getElementById('catGrid') && !document.getElementById('catGrid').children.length) {
+    renderCatGrid(document.getElementById('addCategory').value || 'Groceries');
+  }
 }
 
 function updatePaidByRows() {
@@ -999,6 +1089,18 @@ async function saveEntry() {
     selectedFile = null;
     selectedFileBase64 = null;
 
+    if(window.editingExpenseId) {
+      // Remove old expense from local state
+      const oldIdx = allExpenses.findIndex(e=>e.id===window.editingExpenseId);
+      if(oldIdx > -1) allExpenses.splice(oldIdx, 1);
+      window.editingExpenseId = null;
+      document.querySelector('#page-add .btn-primary').textContent = '💾 Save';
+    }
+
+    renderHome();
+    renderExpensesPage();
+    renderStatsPage();
+
     showPage('home');
     showToast('✅ Saved successfully!');
   } catch(e) {
@@ -1129,13 +1231,100 @@ function openExpModal(id) {
     html += `<div style="margin-top:12px">
       <a href="${e.invoiceUrl}" target="_blank" class="btn btn-outline" style="width:100%;justify-content:center;text-decoration:none">📎 View Invoice</a>
     </div>`;
+  } else {
+    html += `<div style="margin-top:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px">No invoice attached</div>
+      <label class="btn btn-outline" style="width:100%;justify-content:center;cursor:pointer">
+        📎 Add Invoice
+        <input type="file" accept="image/*,application/pdf" style="display:none" onchange="addInvoiceToExpense('${e.id}', this)">
+      </label>
+    </div>`;
   }
+
+  html += `<div class="divider"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button class="btn btn-warn" onclick="editExpense('${e.id}')">✏️ Edit</button>
+      <button class="btn btn-danger-soft" onclick="deleteExpense('${e.id}')">🗑️ Delete</button>
+    </div>`;
 
   document.getElementById('expModalContent').innerHTML = html;
   document.getElementById('expenseModal').classList.add('open');
 }
 
 function closeExpModal() { document.getElementById('expenseModal').classList.remove('open'); }
+
+async function deleteExpense(id) {
+  if(!confirm('Delete this expense? This cannot be undone.')) return;
+  const idx = allExpenses.findIndex(e=>e.id===id);
+  if(idx===-1) return;
+  // Find row in sheet and clear it (mark as deleted)
+  try {
+    showToast('⏳ Deleting...');
+    // Find the row number
+    const rowNum = idx + 2; // +2 for header
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({action:'update', sheet:'Expenses', range:`Expenses!A${rowNum}`, value:'DELETED'})
+    });
+    allExpenses.splice(idx, 1);
+    closeExpModal();
+    renderHome();
+    renderExpensesPage();
+    showToast('✅ Deleted');
+  } catch(e) {
+    showToast('❌ Error: ' + e.message);
+  }
+}
+
+function editExpense(id) {
+  const e = allExpenses.find(x=>x.id===id);
+  if(!e) return;
+  closeExpModal();
+  // Pre-fill the add form
+  showPage('add');
+  setTimeout(() => {
+    document.getElementById('addGroup').value = e.group;
+    updateGroupMembers();
+    document.getElementById('addAmount').value = e.amount;
+    document.getElementById('addDate').value = e.date;
+    document.getElementById('addDesc').value = e.description;
+    document.getElementById('addNotes').value = e.notes || '';
+    document.getElementById('addCategory').value = e.category;
+    renderCatGrid(e.category);
+    // Mark as editing
+    window.editingExpenseId = id;
+    document.querySelector('#page-add .btn-primary').textContent = '💾 Update Expense';
+    showToast('✏️ Edit mode — update and save');
+  }, 100);
+}
+
+async function addInvoiceToExpense(id, input) {
+  const file = input.files[0];
+  if(!file) return;
+  showToast('⏳ Uploading invoice...');
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    try {
+      const base64 = ev.target.result.split(',')[1];
+      const url = await uploadInvoice(ev.target.result, file.name, file.type);
+      // Update in sheet
+      const idx = allExpenses.findIndex(e=>e.id===id);
+      const rowNum = idx + 2;
+      await fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: {'Content-Type':'text/plain'},
+        body: JSON.stringify({action:'update', sheet:'Expenses', range:`Expenses!J${rowNum}`, value:url})
+      });
+      allExpenses[idx].invoiceUrl = url;
+      openExpModal(id);
+      showToast('✅ Invoice added!');
+    } catch(e) {
+      showToast('❌ Upload failed: ' + e.message);
+    }
+  };
+  reader.readAsDataURL(file);
+}
 
 // ============================================================
 // ADD GROUP MODAL
@@ -1217,6 +1406,9 @@ function showPage(name) {
   document.getElementById('page-'+name).classList.add('active');
   const tabs = ['home','add','expenses','stats','groups'];
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)]?.classList.add('active');
+  if(name==='add') {
+    setTimeout(() => renderCatGrid(document.getElementById('addCategory').value || 'Groceries'), 50);
+  }
 }
 function showToast(msg) {
   const t = document.getElementById('toast');
