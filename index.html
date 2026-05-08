@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>OWH — Expenses</title>
+<title>WeShare</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -177,7 +177,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 <!-- HEADER -->
 <div class="header">
   <div>
-    <div class="header-title">⭐ OWH Expenses</div>
+    <div class="header-title">⚖️ WeShare</div>
     <div class="header-sub" id="headerDate"></div>
   </div>
   <button class="sync-btn" onclick="loadAllData()">🔄</button>
@@ -245,6 +245,14 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
         <option value="17A">17A</option>
         <option value="28A">28A</option>
         <option value="Zayed 2000">Zayed 2000</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Logged by</label>
+      <select class="form-select" id="addLoggedBy">
+        <option value="Sarah">Sarah</option>
+        <option value="Khaled">Khaled</option>
+        <option value="Property Manager">Property Manager</option>
       </select>
     </div>
     <div class="form-group">
@@ -588,7 +596,7 @@ async function loadAllData() {
         id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
         category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
         type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
-        shares: tryParse(r[10]||'{}')
+        shares: tryParse(r[10]||'{}'), loggedBy:r[11]||''
       }));
       // Sort newest first
       allExpenses.sort((a,b) => b.date.localeCompare(a.date));
@@ -720,7 +728,7 @@ function renderExpItem(e) {
     <div class="exp-top">
       <div>
         <div class="exp-desc">${typeIcon} ${e.description}</div>
-        <div class="exp-meta">${e.date} • ${e.group}</div>
+        <div class="exp-meta">${e.date} • ${e.group}${e.loggedBy ? ' • by ' + e.loggedBy : ''}</div>
         <span class="cat-badge ${catClass}">${translateCat(e.category)}</span>
       </div>
       <div style="text-align:left">
@@ -820,6 +828,42 @@ function filterStats(group, btn) {
   statsGroupFilter = group;
   document.querySelectorAll('#statsGroupFilter .pill').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
+  updateStats();
+}
+
+function renderStatsPage() {
+  // Build month list from all expenses
+  const months = new Set();
+  allExpenses.forEach(e => {
+    if(e.date && e.date.match(/^\d{4}-\d{2}/)) {
+      months.add(e.date.substring(0,7));
+    }
+  });
+  const now = new Date();
+  const curMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  months.add(curMonth);
+  const monthList = [...months].sort().reverse();
+  if(!statsMonth || !months.has(statsMonth)) statsMonth = monthList[0];
+
+  const monthBar = document.getElementById('statsMonthBar');
+  if(monthBar) {
+    monthBar.innerHTML = monthList.map(m => {
+      const [y,mo] = m.split('-');
+      const label = new Date(y, mo-1, 1).toLocaleDateString('en-GB',{month:'short',year:'numeric'});
+      return `<button class="month-chip ${m===statsMonth?'active':''}" onclick="selectStatsMonth('${m}',this)">${label}</button>`;
+    }).join('');
+  }
+
+  // Rebuild group filter
+  const statsFilter = document.getElementById('statsGroupFilter');
+  if(statsFilter) {
+    let html = `<button class="pill ${statsGroupFilter==='all'?'active':''}" onclick="filterStats('all', this)">All Groups</button>`;
+    allGroups.forEach(g => {
+      html += `<button class="pill ${statsGroupFilter===g.name?'active':''}" onclick="filterStats('${g.name}', this)">${g.name}</button>`;
+    });
+    statsFilter.innerHTML = html;
+  }
+
   updateStats();
 }
 
@@ -1078,5 +1122,433 @@ function updateStats() {
       <div class="bar-track"><div class="bar-fill income" style="width:${(apt/maxApt*100).toFixed(0)}%"></div></div>
     </div>`).join('') : '<div style="color:var(--text3);text-align:center;padding:12px">No income recorded</div>';
 }
+// ============================================================
+// POPULATE GROUP SELECT
+// ============================================================
+function populateGroupSelect() {
+  const sel = document.getElementById('addGroup');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">Select a group...</option>';
+  allGroups.forEach(g => {
+    sel.innerHTML += `<option value="${g.name}">${g.name}</option>`;
+  });
+}
 
+// ============================================================
+// ADD EXPENSE
+// ============================================================
+function setEntryType(type, btn) {
+  entryType = type;
+  document.querySelectorAll('#entryTypePills .pill').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('splitSection').style.display = type==='payment' ? 'none' : 'block';
+  document.getElementById('categoryRow').style.display = type==='income' ? 'none' : 'block';
+  document.getElementById('aptRow').style.display = type==='income' ? 'block' : 'none';
+  if(type==='income') document.getElementById('addCategory').value = 'Rent - 8A';
+  const paidTitle = document.getElementById('paidByTitle');
+  const paidHint = document.getElementById('paidByHint');
+  if(paidTitle) paidTitle.textContent = type==='income' ? 'Who Received the Income?' : 'Who Paid?';
+  if(paidHint) paidHint.textContent = type==='income' ? 'Enter how much each person received' : 'Enter how much each person paid';
+  updatePaidByRows();
+}
 
+function setSplitType(type, btn) {
+  splitType = type;
+  document.querySelectorAll('#splitTypePills .pill').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  updateSplitRows();
+}
+
+function updateGroupMembers() {
+  const groupName = document.getElementById('addGroup').value;
+  const group = allGroups.find(g=>g.name===groupName);
+  currentGroupMembers = group ? group.members : [];
+  updatePaidByRows();
+  updateSplitRows();
+  if(document.getElementById('catGrid') && !document.getElementById('catGrid').children.length) {
+    renderCatGrid(document.getElementById('addCategory').value || 'Groceries');
+  }
+}
+
+function updatePaidByRows() {
+  const container = document.getElementById('paidByRows');
+  if(!container) return;
+  if(entryType === 'payment') {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text3)">Enter payment details in description field</div>';
+    return;
+  }
+  container.innerHTML = currentGroupMembers.map(m => `
+    <div class="split-member-row">
+      <div class="split-member-name">${m}</div>
+      <input type="number" class="split-input" id="paid_${m}" placeholder="0" inputmode="decimal" onchange="autoFillSplit()">
+    </div>`).join('');
+}
+
+function updateSplitRows() {
+  const container = document.getElementById('splitRows');
+  if(!container) return;
+  const amount = parseFloat(document.getElementById('addAmount').value)||0;
+  if(splitType==='equal') {
+    const share = currentGroupMembers.length ? (amount/currentGroupMembers.length) : 0;
+    container.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:8px 0">Split equally: <strong>${Math.round(share).toLocaleString()} EGP</strong> per person</div>`;
+  } else if(splitType==='single') {
+    container.innerHTML = `
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Who bears this expense?</div>
+      <select class="form-select" id="singleBearer">
+        ${currentGroupMembers.map(m=>`<option value="${m}">${m}</option>`).join('')}
+      </select>`;
+  } else {
+    container.innerHTML = currentGroupMembers.map(m => `
+      <div class="split-member-row">
+        <div class="split-member-name">${m}</div>
+        <input type="number" class="split-input" id="split_${m}" placeholder="0" inputmode="decimal">
+      </div>`).join('');
+  }
+}
+
+function autoFillSplit() { if(splitType==='equal') updateSplitRows(); }
+
+function calcShares() {
+  const amount = parseFloat(document.getElementById('addAmount').value)||0;
+  const paidAmounts = {};
+  currentGroupMembers.forEach(m => {
+    paidAmounts[m] = parseFloat(document.getElementById(`paid_${m}`)?.value||0);
+  });
+  const owedAmounts = {};
+  if(splitType==='equal') {
+    const share = amount / currentGroupMembers.length;
+    currentGroupMembers.forEach(m => owedAmounts[m] = share);
+  } else if(splitType==='single') {
+    const bearer = document.getElementById('singleBearer')?.value;
+    currentGroupMembers.forEach(m => owedAmounts[m] = m===bearer ? amount : 0);
+  } else {
+    currentGroupMembers.forEach(m => {
+      owedAmounts[m] = parseFloat(document.getElementById(`split_${m}`)?.value||0);
+    });
+  }
+  const shares = {};
+  currentGroupMembers.forEach(m => { shares[m] = (paidAmounts[m]||0) - (owedAmounts[m]||0); });
+  return shares;
+}
+
+function handleFileSelect(input) {
+  const file = input.files[0];
+  if(!file) return;
+  selectedFile = file;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    selectedFileBase64 = e.target.result;
+    const preview = document.getElementById('uploadPreview');
+    if(file.type.startsWith('image/')) {
+      preview.innerHTML = `<img src="${e.target.result}" alt="invoice" style="max-width:100%;max-height:120px;border-radius:8px;margin-top:8px">`;
+    } else {
+      preview.innerHTML = `<div style="padding:8px;background:var(--surface3);border-radius:8px;font-size:12px;margin-top:8px">📄 ${file.name}</div>`;
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveEntry() {
+  const group = document.getElementById('addGroup').value;
+  const amount = parseFloat(document.getElementById('addAmount').value);
+  const date = document.getElementById('addDate').value;
+  const desc = document.getElementById('addDesc').value.trim();
+  const notes = document.getElementById('addNotes').value.trim();
+  const loggedBy = document.getElementById('addLoggedBy')?.value || 'Sarah';
+  let category = document.getElementById('addCategory').value;
+
+  if(!group) { showToast('⚠️ Select a group'); return; }
+  if(!amount || isNaN(amount)) { showToast('⚠️ Enter amount'); return; }
+  if(!desc) { showToast('⚠️ Enter description'); return; }
+
+  if(entryType==='income') {
+    const apt = document.getElementById('addApt').value;
+    category = `Rent - ${apt}`;
+  }
+
+  showToast('⏳ Saving...');
+  let invoiceUrl = '';
+  if(selectedFileBase64) {
+    try { invoiceUrl = await uploadInvoice(selectedFileBase64, selectedFile.name, selectedFile.type); }
+    catch(e) { showToast('⚠️ Invoice upload failed, saving without it'); }
+  }
+
+  const shares = entryType==='payment' ? {} : calcShares();
+  const id = generateId();
+  const row = [id, group, date, desc, category, amount, 'EGP', entryType, notes, invoiceUrl, JSON.stringify(shares), loggedBy];
+
+  try {
+    await writeToSheet('Expenses', [row]);
+    allExpenses.unshift({ id, group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl, shares, loggedBy });
+
+    if(window.editingExpenseId) {
+      const oldIdx = allExpenses.findIndex(e=>e.id===window.editingExpenseId);
+      if(oldIdx > -1) allExpenses.splice(oldIdx, 1);
+      window.editingExpenseId = null;
+      const saveBtn = document.querySelector('#page-add .btn-primary');
+      if(saveBtn) saveBtn.textContent = '💾 Save';
+    }
+
+    document.getElementById('addAmount').value = '';
+    document.getElementById('addDesc').value = '';
+    document.getElementById('addNotes').value = '';
+    document.getElementById('uploadPreview').innerHTML = '';
+    selectedFile = null; selectedFileBase64 = null;
+
+    renderHome(); renderExpensesPage(); renderStatsPage();
+    showPage('home');
+    showToast('✅ Saved successfully!');
+  } catch(e) {
+    showToast('❌ Save error: ' + e.message);
+  }
+}
+
+// ============================================================
+// SETTLE MODAL
+// ============================================================
+function openSettleModal(groupId) {
+  const group = allGroups.find(g=>g.id===groupId);
+  if(!group) return;
+  const balances = calcGroupBalances(group);
+  const settlements = [];
+  const bal = {...balances};
+  const debtors = Object.entries(bal).filter(([,v])=>v<-0.5).sort((a,b)=>a[1]-b[1]);
+  const creditors = Object.entries(bal).filter(([,v])=>v>0.5).sort((a,b)=>b[1]-a[1]);
+  let credBal = creditors.map(([m,v])=>({m,v}));
+  debtors.forEach(([debtor, debt]) => {
+    let remaining = Math.abs(debt);
+    credBal.forEach(cred => {
+      if(remaining < 0.5 || cred.v < 0.5) return;
+      const amount = Math.min(remaining, cred.v);
+      settlements.push({ from: debtor, to: cred.m, amount });
+      remaining -= amount; cred.v -= amount;
+    });
+  });
+  let html = `<div style="font-size:14px;font-weight:900;margin-bottom:12px">${group.name}</div>`;
+  if(settlements.length===0) {
+    html += `<div style="text-align:center;color:var(--ok);font-weight:700;padding:20px">✅ All settled!</div>`;
+  } else {
+    settlements.forEach(s => {
+      html += `<div style="background:#fff3e0;border-radius:10px;padding:12px;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:700">${s.from} → ${s.to}</div>
+        <div style="font-size:18px;font-weight:900;color:var(--warn);margin-top:4px">${Math.round(s.amount).toLocaleString()} EGP</div>
+      </div>`;
+    });
+    html += `<button class="btn btn-primary" style="margin-top:8px" onclick="recordSettlement('${groupId}')">✅ Record Settlement</button>`;
+  }
+  document.getElementById('settleContent').innerHTML = html;
+  document.getElementById('settleModal').classList.add('open');
+}
+
+function closeSettleModal() { document.getElementById('settleModal').classList.remove('open'); }
+
+async function recordSettlement(groupId) {
+  const group = allGroups.find(g=>g.id===groupId);
+  if(!group) return;
+  const balances = calcGroupBalances(group);
+  const date = new Date().toISOString().split('T')[0];
+  const rows = [];
+  const bal = {...balances};
+  const debtors = Object.entries(bal).filter(([,v])=>v<-0.5);
+  const creditors = Object.entries(bal).filter(([,v])=>v>0.5).map(([m,v])=>({m,v}));
+  debtors.forEach(([debtor, debt]) => {
+    creditors.forEach(cred => {
+      const amount = Math.min(Math.abs(debt), cred.v);
+      if(amount < 0.5) return;
+      const shares = {}; shares[debtor] = amount; shares[cred.m] = -amount;
+      rows.push([generateId(), group.name, date, `Settlement: ${debtor} → ${cred.m}`, 'Payment', amount, 'EGP', 'payment', 'Monthly settlement', '', JSON.stringify(shares), 'System']);
+    });
+  });
+  if(!rows.length) { showToast('Nothing to settle'); return; }
+  try {
+    showToast('⏳ Recording...');
+    await writeToSheet('Expenses', rows);
+    rows.forEach(r => allExpenses.unshift({id:r[0],group:r[1],date:r[2],description:r[3],category:r[4],amount:r[5],currency:'EGP',type:'payment',notes:r[8],invoiceUrl:'',shares:tryParse(r[10]),loggedBy:r[11]}));
+    closeSettleModal(); renderHome(); renderGroupsPage();
+    showToast('✅ Settlement recorded!');
+  } catch(e) { showToast('❌ Error: ' + e.message); }
+}
+
+// ============================================================
+// EXPENSE DETAIL MODAL
+// ============================================================
+function openExpModal(id) {
+  const e = allExpenses.find(x=>x.id===id);
+  if(!e) return;
+  document.getElementById('expModalTitle').textContent = e.description;
+  const shares = e.shares||{};
+  let html = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+      <div class="stat-card" style="padding:10px"><div style="font-size:18px;font-weight:900;color:var(--primary)">${e.amount.toLocaleString()}</div><div style="font-size:10px;color:var(--text3)">EGP</div></div>
+      <div class="stat-card" style="padding:10px"><div style="font-size:13px;font-weight:700">${e.date}</div><div style="font-size:10px;color:var(--text3)">${e.group}${e.loggedBy?' • '+e.loggedBy:''}</div></div>
+    </div>
+    <div style="margin-bottom:10px"><span class="cat-badge">${getCatIcon(e.category)} ${translateCat(e.category)}</span></div>`;
+  if(Object.keys(shares).length>0) {
+    html += `<div class="section-title">Amount Breakdown</div>`;
+    Object.entries(shares).forEach(([m,v]) => {
+      if(Math.abs(v)<0.1) return;
+      const cls = v>0?'owed':'owes';
+      const label = v>0?'Paid / is owed':'Owes';
+      html += `<div class="balance-row ${cls}" style="margin-bottom:6px"><div class="balance-text">${m} — ${label}</div><div class="balance-amount">${Math.abs(Math.round(v)).toLocaleString()} EGP</div></div>`;
+    });
+  }
+  if(e.notes) html += `<div style="margin-top:10px;padding:10px;background:var(--surface3);border-radius:8px;font-size:12px;color:var(--text2)">📝 ${e.notes}</div>`;
+  if(e.invoiceUrl) {
+    html += `<div style="margin-top:12px"><a href="${e.invoiceUrl}" target="_blank" class="btn btn-outline" style="width:100%;justify-content:center;text-decoration:none">📎 View Invoice</a></div>`;
+  } else {
+    html += `<div style="margin-top:12px"><div style="font-size:11px;color:var(--text3);margin-bottom:6px">No invoice attached</div>
+      <label class="btn btn-outline" style="width:100%;justify-content:center;cursor:pointer">📎 Add Invoice
+        <input type="file" accept="image/*,application/pdf" style="display:none" onchange="addInvoiceToExpense('${e.id}', this)">
+      </label></div>`;
+  }
+  html += `<div class="divider"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <button class="btn btn-warn" onclick="editExpense('${e.id}')">✏️ Edit</button>
+    <button class="btn btn-danger-soft" onclick="deleteExpense('${e.id}')">🗑️ Delete</button>
+  </div>`;
+  document.getElementById('expModalContent').innerHTML = html;
+  document.getElementById('expenseModal').classList.add('open');
+}
+
+function closeExpModal() { document.getElementById('expenseModal').classList.remove('open'); }
+
+async function deleteExpense(id) {
+  if(!confirm('Delete this expense? This cannot be undone.')) return;
+  const idx = allExpenses.findIndex(e=>e.id===id);
+  if(idx===-1) return;
+  try {
+    showToast('⏳ Deleting...');
+    const rowNum = idx + 2;
+    await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'update', sheet:'Expenses', range:`Expenses!A${rowNum}`, value:'DELETED'}) });
+    allExpenses.splice(idx, 1);
+    closeExpModal(); renderHome(); renderExpensesPage();
+    showToast('✅ Deleted');
+  } catch(e) { showToast('❌ Error: ' + e.message); }
+}
+
+function editExpense(id) {
+  const e = allExpenses.find(x=>x.id===id);
+  if(!e) return;
+  closeExpModal();
+  showPage('add');
+  setTimeout(() => {
+    document.getElementById('addGroup').value = e.group;
+    updateGroupMembers();
+    document.getElementById('addAmount').value = e.amount;
+    document.getElementById('addDate').value = e.date;
+    document.getElementById('addDesc').value = e.description;
+    document.getElementById('addNotes').value = e.notes || '';
+    document.getElementById('addCategory').value = e.category;
+    if(document.getElementById('addLoggedBy') && e.loggedBy) document.getElementById('addLoggedBy').value = e.loggedBy;
+    renderCatGrid(e.category);
+    window.editingExpenseId = id;
+    const saveBtn = document.querySelector('#page-add .btn-primary');
+    if(saveBtn) saveBtn.textContent = '💾 Update Expense';
+    showToast('✏️ Edit mode — make changes and save');
+  }, 100);
+}
+
+async function addInvoiceToExpense(id, input) {
+  const file = input.files[0];
+  if(!file) return;
+  showToast('⏳ Uploading invoice...');
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    try {
+      const url = await uploadInvoice(ev.target.result, file.name, file.type);
+      const idx = allExpenses.findIndex(e=>e.id===id);
+      const rowNum = idx + 2;
+      await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'update', sheet:'Expenses', range:`Expenses!J${rowNum}`, value:url}) });
+      allExpenses[idx].invoiceUrl = url;
+      openExpModal(id);
+      showToast('✅ Invoice added!');
+    } catch(e) { showToast('❌ Upload failed: ' + e.message); }
+  };
+  reader.readAsDataURL(file);
+}
+
+// ============================================================
+// ADD GROUP MODAL
+// ============================================================
+function openAddGroupModal() { document.getElementById('addGroupModal').classList.add('open'); }
+function closeAddGroupModal() { document.getElementById('addGroupModal').classList.remove('open'); }
+
+function addExtraMember() {
+  const name = document.getElementById('extraMemberName').value.trim();
+  if(!name) return;
+  const container = document.getElementById('newGroupMembersCheck');
+  container.innerHTML += `<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px"><input type="checkbox" value="${name}" checked> ${name}</label>`;
+  document.getElementById('extraMemberName').value = '';
+}
+
+async function saveNewGroup() {
+  const name = document.getElementById('newGroupName').value.trim();
+  if(!name) { showToast('⚠️ Enter group name'); return; }
+  const checked = [...document.querySelectorAll('#newGroupMembersCheck input:checked')].map(i=>i.value);
+  if(checked.length<2) { showToast('⚠️ Select at least 2 members'); return; }
+  const id = 'g' + Date.now();
+  const newGroup = { id, name, members: checked, color: '#cc5f5f' };
+  try {
+    showToast('⏳ Saving...');
+    await writeToSheet('Groups', [[id, name, checked.join(','), '#cc5f5f', '']]);
+    allGroups.push(newGroup);
+    renderGroupsPage(); populateGroupSelect(); populateGroupFilters();
+    closeAddGroupModal(); showToast('✅ Group added!');
+  } catch(e) {
+    allGroups.push(newGroup);
+    renderGroupsPage(); populateGroupSelect(); populateGroupFilters();
+    closeAddGroupModal(); showToast('✅ Group added');
+  }
+}
+
+// ============================================================
+// SHEET WRITE / UPLOAD
+// ============================================================
+async function writeToSheet(sheetName, rows) {
+  const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'append', sheet:sheetName, rows}) });
+  if(!res.ok) throw new Error('Write failed');
+  return res.json();
+}
+
+async function uploadInvoice(base64, filename, mimeType) {
+  const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'uploadFile', filename, mimeType, base64:base64.split(',')[1]}) });
+  const data = await res.json();
+  return data.url || '';
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function generateId() { return Math.random().toString(36).substr(2,8); }
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  const tabs = ['home','add','expenses','stats','groups'];
+  document.querySelectorAll('.nav-tab')[tabs.indexOf(name)]?.classList.add('active');
+  if(name==='add') setTimeout(() => renderCatGrid(document.getElementById('addCategory').value || 'Groceries'), 50);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 3000);
+}
+
+function selectStatsMonth(m, btn) {
+  statsMonth = m;
+  document.querySelectorAll('.month-chip').forEach(c=>c.classList.remove('active'));
+  btn.classList.add('active');
+  updateStats();
+}
+
+document.getElementById('addAmount')?.addEventListener('input', updateSplitRows);
+
+['expenseModal','settleModal','addGroupModal'].forEach(id => {
+  const el = document.getElementById(id);
+  if(el) el.addEventListener('click', function(e) { if(e.target===this) this.classList.remove('open'); });
+});
+</script>
+</body>
+</html>
