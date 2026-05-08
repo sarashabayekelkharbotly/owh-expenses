@@ -308,6 +308,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 
 <!-- ===== STATS PAGE ===== -->
 <div class="page" id="page-stats">
+  <div id="statsHistoryNote" style="text-align:center;margin-bottom:8px;font-size:11px;color:var(--text3)"></div>
   <div class="pills" id="statsGroupFilter" style="margin-bottom:10px">
     <button class="pill active" onclick="filterStats('all', this)">All Groups</button>
   </div>
@@ -383,6 +384,41 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
       <button onclick="closeSettleModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
     </div>
     <div id="settleContent"></div>
+  </div>
+</div>
+
+<!-- ===== DATE RANGE MODAL ===== -->
+<div class="modal-overlay" id="dateRangeModal">
+  <div class="modal" style="max-height:auto">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div class="modal-title">📅 Select Date Range</div>
+      <button onclick="closeDateRangeModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">
+      <div class="form-group" style="margin:0">
+        <label class="form-label">From</label>
+        <input type="date" class="form-input" id="drFrom">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">To</label>
+        <input type="date" class="form-input" id="drTo">
+      </div>
+    </div>
+
+    <!-- Quick presets -->
+    <div class="section-title">Quick Select</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+      <button class="btn btn-outline btn-sm" onclick="setPreset(1)" style="justify-content:center">Last month</button>
+      <button class="btn btn-outline btn-sm" onclick="setPreset(3)" style="justify-content:center">Last 3 months</button>
+      <button class="btn btn-outline btn-sm" onclick="setPreset(6)" style="justify-content:center">Last 6 months</button>
+      <button class="btn btn-outline btn-sm" onclick="setPreset(12)" style="justify-content:center">Last 12 months</button>
+      <button class="btn btn-outline btn-sm" onclick="setPresetYear(0)" style="justify-content:center">This year</button>
+      <button class="btn btn-outline btn-sm" onclick="setPresetYear(1)" style="justify-content:center">Last year</button>
+    </div>
+
+    <button class="btn btn-primary" onclick="loadDateRange()">📥 Load Data</button>
   </div>
 </div>
 
@@ -511,6 +547,9 @@ function getCatIcon(cat) {
   return '🏷️';
 }
 let statsMonth = null;
+let totalRowsInSheet = 0;
+let allHistoryLoaded = false;
+let currentDateRange = null;
 let statsGroupFilter = 'all';
 let expGroupFilter = 'all';
 let expTypeFilter = 'all';
@@ -527,6 +566,12 @@ const DEFAULT_GROUPS = [
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('headerDate').textContent = new Date().toLocaleDateString('en-GB', {day:'numeric',month:'short',year:'numeric'});
   document.getElementById('addDate').valueAsDate = new Date();
+  // Pre-fill date range with last 12 months
+  const drTo = new Date();
+  const drFrom = new Date();
+  drFrom.setMonth(drFrom.getMonth() - 12);
+  document.getElementById('drTo').value = drTo.toISOString().split('T')[0];
+  document.getElementById('drFrom').value = drFrom.toISOString().split('T')[0];
   document.getElementById('homeContent').innerHTML = '<div class="loading"><div class="spinner"></div><span>Loading data from Google Sheet...</span></div>';
   loadAllData();
 });
@@ -562,6 +607,43 @@ function parseSheetDate(val) {
   return s;
 }
 
+function openDateRangeModal() {
+  document.getElementById('dateRangeModal').classList.add('open');
+}
+
+function closeDateRangeModal() {
+  document.getElementById('dateRangeModal').classList.remove('open');
+}
+
+async function loadDateRange() {
+  const from = document.getElementById('drFrom').value;
+  const to = document.getElementById('drTo').value;
+  if(!from || !to) { showToast('⚠️ Select both dates'); return; }
+  if(from > to) { showToast('⚠️ Start date must be before end date'); return; }
+
+  closeDateRangeModal();
+  showToast('⏳ Loading data...');
+
+  try {
+    const eRows = await fetchSheet('Expenses!A2:L10000');
+    const allRows = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
+      id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
+      category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
+      type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
+      shares: tryParse(r[10]||'{}'), loggedBy:r[11]||''
+    }));
+    totalRowsInSheet = allRows.length;
+    allExpenses = allRows.filter(e => e.date >= from && e.date <= to);
+    allExpenses.sort((a,b) => b.date.localeCompare(a.date));
+    currentDateRange = { from, to };
+    allHistoryLoaded = true;
+    renderHome(); renderExpensesPage(); renderStatsPage();
+    showToast(`✅ Loaded ${allExpenses.length} transactions`);
+  } catch(e) {
+    showToast('❌ Error: ' + e.message);
+  }
+}
+
 async function loadAllData() {
   try {
     // Load custom categories from sheet
@@ -589,18 +671,25 @@ async function loadAllData() {
       allGroups = [...DEFAULT_GROUPS];
     }
 
-    // Load expenses — fetch all rows
+    // Load expenses — last 12 months only for speed
     try {
-      const eRows = await fetchSheet('Expenses!A2:K10000');
-      allExpenses = eRows.filter(r=>r[0]).map(r => ({
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - 12);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+
+      const eRows = await fetchSheet('Expenses!A2:L10000');
+      const allRows = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
         id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
         category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
         type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
         shares: tryParse(r[10]||'{}'), loggedBy:r[11]||''
       }));
-      // Sort newest first
+
+      // Filter to last 12 months
+      allExpenses = allRows.filter(e => e.date >= cutoffStr);
+      totalRowsInSheet = allRows.length;
       allExpenses.sort((a,b) => b.date.localeCompare(a.date));
-      console.log(`Loaded ${allExpenses.length} expenses from sheet`);
+      console.log(`Loaded ${allExpenses.length} of ${totalRowsInSheet} expenses`);
     } catch(e) {
       console.error('Expenses load error:', e);
       allExpenses = [];
@@ -636,6 +725,14 @@ function renderHome() {
 
 
 
+  const rangeLabel = currentDateRange
+    ? `${currentDateRange.from} → ${currentDateRange.to}`
+    : 'Last 12 months';
+  const historyNote = `<div style="font-size:11px;color:var(--text3);text-align:center;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px">
+    📅 <span>${rangeLabel} (${allExpenses.length} transactions)</span>
+    <button onclick="openDateRangeModal()" style="background:var(--primary);border:none;color:white;font-weight:700;cursor:pointer;font-family:Cairo,sans-serif;font-size:10px;padding:3px 8px;border-radius:6px">Change</button>
+  </div>`;
+  html += historyNote;
   html += `<div class="section-title">Current Balances</div>`;
 
   // Calculate balances per group
@@ -862,6 +959,13 @@ function renderStatsPage() {
       html += `<button class="pill ${statsGroupFilter===g.name?'active':''}" onclick="filterStats('${g.name}', this)">${g.name}</button>`;
     });
     statsFilter.innerHTML = html;
+  }
+
+  // Show history note
+  const noteEl = document.getElementById('statsHistoryNote');
+  if(noteEl) {
+    const rangeLabel2 = currentDateRange ? `${currentDateRange.from} → ${currentDateRange.to}` : 'Last 12 months';
+    noteEl.innerHTML = `📅 ${rangeLabel2} (${allExpenses.length} transactions) <button onclick="openDateRangeModal()" style="background:var(--primary);border:none;color:white;font-weight:700;cursor:pointer;font-family:Cairo,sans-serif;font-size:10px;padding:3px 8px;border-radius:6px;margin-right:4px">Change range</button>`;
   }
 
   updateStats();
@@ -1545,7 +1649,21 @@ function selectStatsMonth(m, btn) {
 
 document.getElementById('addAmount')?.addEventListener('input', updateSplitRows);
 
-['expenseModal','settleModal','addGroupModal'].forEach(id => {
+function setPreset(months) {
+  const to = new Date();
+  const from = new Date();
+  from.setMonth(from.getMonth() - months);
+  document.getElementById('drTo').value = to.toISOString().split('T')[0];
+  document.getElementById('drFrom').value = from.toISOString().split('T')[0];
+}
+
+function setPresetYear(yearsAgo) {
+  const year = new Date().getFullYear() - yearsAgo;
+  document.getElementById('drFrom').value = `${year}-01-01`;
+  document.getElementById('drTo').value = `${year}-12-31`;
+}
+
+['expenseModal','settleModal','addGroupModal','dateRangeModal'].forEach(id => {
   const el = document.getElementById(id);
   if(el) el.addEventListener('click', function(e) { if(e.target===this) this.classList.remove('open'); });
 });
