@@ -456,7 +456,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 // ============================================================
 const SHEET_ID = '1RnoTVR0o1UMkjme3iPeC0XziA28vqTVw2Ij-arsQlbc';
 const API_KEY  = 'AIzaSyCHqfBKYYE2qpjmNlzgposZrHtVchEpAmo';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw0AQWKcmqa7fFTnoOU-1omYrFdGJGCDxLHFRKA_M6NM2FXtvHgDDnRuRO4L2uIImq8pA/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyXoDfcCXz5CEPjmLjkM5w_ChBKyLeWVSGw91emUSscMifzCjJZX6XdEeo7Fy7NzQ62Iw/exec';
 const BASE_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values`;
 
 // ============================================================
@@ -625,15 +625,20 @@ async function loadDateRange() {
   showToast('⏳ Loading data...');
 
   try {
-    const eRows = await fetchSheet('Expenses!A2:L10000');
-    const allRows = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'getExpenses', from, to })
+    });
+    const data = await res.json();
+    const eRows = data.rows || [];
+    totalRowsInSheet = data.total || 0;
+    allExpenses = eRows.filter(r=>r[0]).map(r => ({
       id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
       category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
       type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
       shares: tryParse(r[10]||'{}'), loggedBy:r[11]||''
     }));
-    totalRowsInSheet = allRows.length;
-    allExpenses = allRows.filter(e => e.date >= from && e.date <= to);
     allExpenses.sort((a,b) => b.date.localeCompare(a.date));
     currentDateRange = { from, to };
     allHistoryLoaded = true;
@@ -671,23 +676,29 @@ async function loadAllData() {
       allGroups = [...DEFAULT_GROUPS];
     }
 
-    // Load expenses — last 12 months only for speed
+    // Load expenses via Apps Script with server-side date filtering
     try {
-      const cutoff = new Date();
-      cutoff.setMonth(cutoff.getMonth() - 12);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
+      const to = new Date();
+      const from = new Date();
+      from.setMonth(from.getMonth() - 12);
+      const fromStr = from.toISOString().split('T')[0];
+      const toStr = to.toISOString().split('T')[0];
 
-      const eRows = await fetchSheet('Expenses!A2:L10000');
-      const allRows = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
+      const res = await fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'getExpenses', from: fromStr, to: toStr })
+      });
+      const data = await res.json();
+      const eRows = data.rows || [];
+      totalRowsInSheet = data.total || 0;
+
+      allExpenses = eRows.filter(r=>r[0]).map(r => ({
         id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
         category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
         type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
         shares: tryParse(r[10]||'{}'), loggedBy:r[11]||''
       }));
-
-      // Filter to last 12 months
-      allExpenses = allRows.filter(e => e.date >= cutoffStr);
-      totalRowsInSheet = allRows.length;
       allExpenses.sort((a,b) => b.date.localeCompare(a.date));
       console.log(`Loaded ${allExpenses.length} of ${totalRowsInSheet} expenses`);
     } catch(e) {
