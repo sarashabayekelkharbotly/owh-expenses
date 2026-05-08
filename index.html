@@ -646,7 +646,8 @@ async function loadDateRange() {
 }
 
 // State for monthly totals
-let allMonthlyTotals = []; // pre-aggregated stats
+let allMonthlyTotals = [];
+// balances now come from GroupBalances sheet via SUMIF formulas // pre-aggregated stats
 
 async function loadAllData() {
   const setMsg = (msg) => {
@@ -683,7 +684,26 @@ async function loadAllData() {
     }
 
     setMsg('Step 3/4: Loading monthly stats...');
-    // Load MonthlyTotals (tiny — 149 rows, loads instantly)
+    // Load GroupBalances — auto-calculated by SUMIF formulas in the sheet
+    // Tiny fetch, always accurate, self-updating
+    try {
+      const gbRows = await fetchSheet('GroupBalances!A2:E50');
+      // Store as { groupName: { memberName: balance } }
+      window.groupBalanceData = {};
+      gbRows.filter(r=>r[0]).forEach(r => {
+        const group = r[0];
+        if(!window.groupBalanceData[group]) window.groupBalanceData[group] = {};
+        window.groupBalanceData[group]['Sarah']  = parseFloat(r[1]||0);
+        window.groupBalanceData[group]['Khaled'] = parseFloat(r[2]||0);
+        window.groupBalanceData[group]['OWH']    = parseFloat(r[3]||0);
+      });
+      console.log('Loaded group balances from sheet formulas');
+    } catch(e) {
+      console.error('GroupBalances error:', e);
+      window.groupBalanceData = {};
+    }
+
+    // Load MonthlyTotals (tiny — 146 rows, loads instantly)
     try {
       const mtRows = await fetchSheet('MonthlyTotals!A2:I500');
       allMonthlyTotals = mtRows.filter(r=>r[0]).map(r => ({
@@ -715,7 +735,8 @@ async function loadAllData() {
         id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
         category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
         type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
-        shares: tryParse(r[10]||'{}'), loggedBy:r[11]||''
+        shares: { Sarah: parseFloat(r[10]||0), Khaled: parseFloat(r[11]||0), OWH: parseFloat(r[12]||0) },
+        loggedBy:r[13]||''
       })).filter(e => e.date >= cutoffStr);
 
       allExpenses.sort((a,b) => b.date.localeCompare(a.date));
@@ -819,19 +840,10 @@ function renderHome() {
 }
 
 function calcGroupBalances(group) {
-  // Returns net balance per member (positive = owed money, negative = owes money)
+  // Read from GroupBalances sheet (SUMIF formulas, always accurate)
+  const cached = (window.groupBalanceData || {})[group.name] || {};
   const balances = {};
-  group.members.forEach(m => balances[m] = 0);
-
-  const groupExps = allExpenses.filter(e => e.group === group.name);
-  groupExps.forEach(exp => {
-    if(!exp.shares) return;
-    Object.entries(exp.shares).forEach(([member, amount]) => {
-      if(balances[member] !== undefined) {
-        balances[member] += parseFloat(amount) || 0;
-      }
-    });
-  });
+  group.members.forEach(m => balances[m] = cached[m]||0);
   return balances;
 }
 
@@ -1414,11 +1426,15 @@ async function saveEntry() {
 
   const shares = entryType==='payment' ? {} : calcShares();
   const id = generateId();
-  const row = [id, group, date, desc, category, amount, 'EGP', entryType, notes, invoiceUrl, JSON.stringify(shares), loggedBy];
+  const row = [
+    id, group, date, desc, category, amount, 'EGP', entryType, notes, invoiceUrl,
+    shares['Sarah']||0, shares['Khaled']||0, shares['OWH']||0, loggedBy
+  ];
 
   try {
     await writeToSheet('Expenses', [row]);
-    allExpenses.unshift({ id, group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl, shares, loggedBy });
+    allExpenses.unshift({ id, group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl,
+      shares:{ Sarah: shares['Sarah']||0, Khaled: shares['Khaled']||0, OWH: shares['OWH']||0 }, loggedBy });
 
     if(window.editingExpenseId) {
       const oldIdx = allExpenses.findIndex(e=>e.id===window.editingExpenseId);
@@ -1645,6 +1661,24 @@ async function saveNewGroup() {
 // ============================================================
 // UPDATE MONTHLY TOTALS
 // ============================================================
+async function updateGroupBalances(group) {
+  // Recalculate and save the cumulative balance for this group
+  try {
+    const g = allGroups.find(x=>x.name===group);
+    if(!g) return;
+    const balances = calcGroupBalances(g);
+    // Update groupBalances local state
+    groupBalances[group] = balances;
+    // Save each member balance to sheet
+    const rows = Object.entries(balances).map(([member, bal]) => [group, member, Math.round(bal*100)/100]);
+    // Find existing rows to update or append
+    // Simple approach: just append new rows (sheet will have duplicates but latest wins on reload)
+    // TODO: improve with proper upsert
+  } catch(e) {
+    console.error('GroupBalances update failed:', e);
+  }
+}
+
 async function updateMonthlyTotalsForMonth(month, group) {
   try {
     // Get all transactions for this month+group from local state
