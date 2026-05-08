@@ -572,7 +572,11 @@ document.addEventListener('DOMContentLoaded', () => {
   drFrom.setMonth(drFrom.getMonth() - 12);
   document.getElementById('drTo').value = drTo.toISOString().split('T')[0];
   document.getElementById('drFrom').value = drFrom.toISOString().split('T')[0];
-  document.getElementById('homeContent').innerHTML = '<div class="loading"><div class="spinner"></div><span>Loading data from Google Sheet...</span></div>';
+  document.getElementById('homeContent').innerHTML = `
+    <div class="loading">
+      <div class="spinner"></div>
+      <span id="loadingMsg">Connecting to Google Sheet...</span>
+    </div>`;
   loadAllData();
 });
 
@@ -625,20 +629,14 @@ async function loadDateRange() {
   showToast('⏳ Loading data...');
 
   try {
-    const res = await fetch(SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'getExpenses', from, to })
-    });
-    const data = await res.json();
-    const eRows = data.rows || [];
-    totalRowsInSheet = data.total || 0;
-    allExpenses = eRows.filter(r=>r[0]).map(r => ({
+    const eRows = await fetchSheet('Expenses!A2:L10000');
+    totalRowsInSheet = eRows.length;
+    allExpenses = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
       id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
       category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
       type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
       shares: tryParse(r[10]||'{}'), loggedBy:r[11]||''
-    }));
+    })).filter(e => (!from || e.date >= from) && (!to || e.date <= to));
     allExpenses.sort((a,b) => b.date.localeCompare(a.date));
     currentDateRange = { from, to };
     allHistoryLoaded = true;
@@ -676,31 +674,32 @@ async function loadAllData() {
       allGroups = [...DEFAULT_GROUPS];
     }
 
-    // Load expenses via Apps Script with server-side date filtering
+    // Load expenses via Google Sheets API directly (fast reads)
+    // Only fetch last 12 months by limiting rows from the end of the sheet
     try {
-      const to = new Date();
-      const from = new Date();
-      from.setMonth(from.getMonth() - 12);
-      const fromStr = from.toISOString().split('T')[0];
-      const toStr = to.toISOString().split('T')[0];
+      // First get total row count
+      const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?key=${API_KEY}&fields=sheets.properties`);
+      const metaData = await metaRes.json();
+      const sheetMeta = metaData.sheets?.find(s => s.properties.title === 'Expenses');
+      totalRowsInSheet = sheetMeta ? Math.max(0, sheetMeta.properties.gridProperties.rowCount - 1) : 0;
 
-      const res = await fetch(SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'getExpenses', from: fromStr, to: toStr })
-      });
-      const data = await res.json();
-      const eRows = data.rows || [];
-      totalRowsInSheet = data.total || 0;
+      // Fetch only last 2000 rows (covers ~12 months easily)
+      const startRow = Math.max(2, totalRowsInSheet - 1998);
+      const eRows = await fetchSheet(`Expenses!A${startRow}:L${totalRowsInSheet + 1}`);
 
-      allExpenses = eRows.filter(r=>r[0]).map(r => ({
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - 12);
+      const cutoffStr = cutoff.toISOString().split('T')[0];
+
+      allExpenses = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
         id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
         category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
         type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
         shares: tryParse(r[10]||'{}'), loggedBy:r[11]||''
-      }));
+      })).filter(e => !e.date || e.date >= cutoffStr);
+
       allExpenses.sort((a,b) => b.date.localeCompare(a.date));
-      console.log(`Loaded ${allExpenses.length} of ${totalRowsInSheet} expenses`);
+      console.log(`Loaded ${allExpenses.length} expenses`);
     } catch(e) {
       console.error('Expenses load error:', e);
       allExpenses = [];
@@ -713,6 +712,8 @@ async function loadAllData() {
     populateGroupSelect();
     populateGroupFilters();
     showToast('✅ Updated');
+    const loadMsg = document.getElementById('loadingMsg');
+    if(loadMsg) loadMsg.textContent = 'Almost done...';
   } catch(e) {
     showToast('❌ Error: ' + e.message);
     allGroups = [...DEFAULT_GROUPS];
