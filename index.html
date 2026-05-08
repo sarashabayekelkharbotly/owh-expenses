@@ -502,18 +502,13 @@ function renderCatGrid(selected) {
   const all = [...CATEGORIES, ...customCategories.map(c => ({value:c, label:c, icon:'🏷️'}))];
   const grid = document.getElementById('catGrid');
   if(!grid) return;
-  grid.innerHTML = all.map(c => `
-    <div onclick="selectCat('${c.value}')" style="
-      aspect-ratio:1; border-radius:14px; text-align:center; cursor:pointer;
-      border:2.5px solid ${selected===c.value ? 'var(--primary)' : 'var(--border)'};
-      background:${selected===c.value ? '#fdf0f0' : 'var(--surface)'};
-      transition:all 0.15s; display:flex; flex-direction:column;
-      align-items:center; justify-content:center; gap:4px;
-      box-shadow: ${selected===c.value ? '0 2px 8px rgba(204,95,95,0.2)' : 'none'};
-    ">
-      <div style="font-size:28px;line-height:1">${c.icon}</div>
-      <div style="font-size:9px;font-weight:700;color:${selected===c.value ? 'var(--primary)' : 'var(--text2)');padding:0 4px;text-align:center;line-height:1.2">${c.label}</div>
-    </div>`).join('');
+  grid.innerHTML = all.map(c => {
+    const isSelected = selected===c.value;
+    return '<div onclick="selectCat(\''+c.value+'\')" style="aspect-ratio:1;border-radius:14px;text-align:center;cursor:pointer;border:2.5px solid '+(isSelected?'var(--primary)':'var(--border)')+';background:'+(isSelected?'#fdf0f0':'var(--surface)')+';transition:all 0.15s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;box-shadow:'+(isSelected?'0 2px 8px rgba(204,95,95,0.2)':'none')+'">'
+      + '<div style="font-size:28px;line-height:1">'+c.icon+'</div>'
+      + '<div style="font-size:9px;font-weight:700;color:'+(isSelected?'var(--primary)':'var(--text2)')+';padding:0 4px;text-align:center;line-height:1.2">'+c.label+'</div>'
+      + '</div>';
+  }).join('');
 }
 
 function selectCat(val) {
@@ -564,20 +559,23 @@ const DEFAULT_GROUPS = [
 // INIT
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('headerDate').textContent = new Date().toLocaleDateString('en-GB', {day:'numeric',month:'short',year:'numeric'});
-  document.getElementById('addDate').valueAsDate = new Date();
-  // Pre-fill date range with last 12 months
-  const drTo = new Date();
-  const drFrom = new Date();
-  drFrom.setMonth(drFrom.getMonth() - 12);
-  document.getElementById('drTo').value = drTo.toISOString().split('T')[0];
-  document.getElementById('drFrom').value = drFrom.toISOString().split('T')[0];
-  document.getElementById('homeContent').innerHTML = `
-    <div class="loading">
-      <div class="spinner"></div>
-      <span id="loadingMsg">Connecting to Google Sheet...</span>
-    </div>`;
-  loadAllData();
+  try {
+    document.getElementById('headerDate').textContent = new Date().toLocaleDateString('en-GB', {day:'numeric',month:'short',year:'numeric'});
+    document.getElementById('addDate').valueAsDate = new Date();
+    const drTo = new Date();
+    const drFrom = new Date();
+    drFrom.setMonth(drFrom.getMonth() - 12);
+    document.getElementById('drTo').value = drTo.toISOString().split('T')[0];
+    document.getElementById('drFrom').value = drFrom.toISOString().split('T')[0];
+    document.getElementById('homeContent').innerHTML = `
+      <div class="loading">
+        <div class="spinner"></div>
+        <span id="loadingMsg">Connecting to Google Sheet...</span>
+      </div>`;
+    loadAllData();
+  } catch(err) {
+    document.getElementById('homeContent').innerHTML = '<div style="padding:20px;color:red">JS Error: ' + err.message + '<br>' + err.stack + '</div>';
+  }
 });
 
 // ============================================================
@@ -1232,6 +1230,36 @@ function updateStats() {
     </div>`).join('') : '<div style="color:var(--text3);text-align:center;padding:12px">No income recorded</div>';
 }
 
+
+// ============================================================
+// GROUPS PAGE
+// ============================================================
+function renderGroupsPage() {
+  const container = document.getElementById('groupsList');
+  if(!container) return;
+  container.innerHTML = allGroups.map(g => {
+    const balances = calcGroupBalances(g);
+    const totalExp = allExpenses.filter(e=>e.group===g.name && e.type==='expense').reduce((s,e)=>s+e.amount,0);
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div>
+          <div style="font-size:15px;font-weight:900">${g.name}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Members: ${g.members.join(' • ')}</div>
+        </div>
+        <button class="btn btn-sm btn-warn" onclick="openSettleModal('${g.id}')">Settle</button>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Recent expenses: <strong>${Math.round(totalExp).toLocaleString()} EGP</strong></div>
+      <div class="balance-rows">
+        ${Object.entries(balances).map(([m,v])=>{
+          if(Math.abs(v)<0.5) return `<div class="balance-row settled"><div class="balance-text">${m}</div><div style="font-size:12px;color:var(--ok)">✅ Settled</div></div>`;
+          const cls = v>0?'owed':'owes';
+          const label = v>0?'is owed':'owes';
+          return `<div class="balance-row ${cls}"><div class="balance-text">${m} ${label}</div><div class="balance-amount">${Math.abs(Math.round(v)).toLocaleString()} EGP</div></div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
 
 // ============================================================
 // POPULATE GROUP SELECT
