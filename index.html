@@ -651,7 +651,13 @@ async function loadDateRange() {
 let allMonthlyTotals = []; // pre-aggregated stats
 
 async function loadAllData() {
+  const setMsg = (msg) => {
+    const el = document.getElementById('loadingMsg');
+    if(el) el.textContent = msg;
+    console.log(msg);
+  };
   try {
+    setMsg('Step 1/4: Loading categories...');
     // Load custom categories from sheet
     try {
       const catRows = await fetchSheet('Categories!A2:A100');
@@ -661,6 +667,7 @@ async function loadAllData() {
       customCategories = [];
     }
 
+    setMsg('Step 2/4: Loading groups...');
     // Load groups from sheet
     try {
       const gRows = await fetchSheet('Groups!A2:E20');
@@ -677,6 +684,7 @@ async function loadAllData() {
       allGroups = [...DEFAULT_GROUPS];
     }
 
+    setMsg('Step 3/4: Loading monthly stats...');
     // Load MonthlyTotals (tiny — 149 rows, loads instantly)
     try {
       const mtRows = await fetchSheet('MonthlyTotals!A2:I500');
@@ -695,6 +703,7 @@ async function loadAllData() {
       allMonthlyTotals = [];
     }
 
+    setMsg('Step 4/4: Loading recent transactions...');
     // Load only last 4 months of individual transactions (fast)
     try {
       const cutoff = new Date();
