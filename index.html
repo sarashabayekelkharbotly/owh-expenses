@@ -736,7 +736,13 @@ async function loadAllData() {
         id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
         category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
         type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
-        shares: { Sarah: parseFloat(r[10]||0), Khaled: parseFloat(r[11]||0), OWH: parseFloat(r[12]||0) },
+        shares: (() => {
+          const s = { Sarah: parseFloat(r[10]||0), Khaled: parseFloat(r[11]||0), OWH: parseFloat(r[12]||0) };
+          const notes = r[8]||'';
+          const pm = notes.match(/\[Personal: ([^\]]+)\]/);
+          if(pm) s['_personal'] = pm[1];
+          return s;
+        })(),
         loggedBy:r[13]||''
       })).filter(e => e.date >= cutoffStr);
 
@@ -853,10 +859,11 @@ function calcGroupBalances(group) {
 // ============================================================
 function renderExpItem(e) {
   const shares = e.shares || {};
-  const shareValues = Object.entries(shares).map(([m,v]) => [m, parseFloat(v)]);
+  const personalFor = shares['_personal'] || '';
+  const shareValues = Object.entries(shares).filter(([m]) => m !== '_personal').map(([m,v]) => [m, parseFloat(v)]);
   const allZero = shareValues.every(([,v]) => Math.abs(v) < 0.1);
   const shareChips = allZero
-    ? `<span class="share-chip" style="background:var(--surface3);color:var(--text3)">👤 Personal expense</span>`
+    ? `<span class="share-chip" style="background:var(--surface3);color:var(--text3)">👤 ${personalFor ? personalFor + "'s personal" : 'Personal expense'}</span>`
     : shareValues.map(([m, v]) => {
         if(Math.abs(v) < 0.1) return '';
         const cls = v > 0 ? 'share-pos' : 'share-neg';
@@ -1382,8 +1389,11 @@ function calcShares() {
   const owedAmounts = {};
   if(splitType==='personal') {
     // Personal expense — zero impact on all balances
+    // Store who it belongs to via a special marker
+    const personalFor = document.getElementById('personalMember')?.value || '';
     const shares = {};
     currentGroupMembers.forEach(m => shares[m] = 0);
+    shares['_personal'] = personalFor; // tag who it's for
     return shares;
   }
   if(splitType==='equal') {
@@ -1429,8 +1439,33 @@ async function saveEntry() {
   let category = document.getElementById('addCategory').value;
 
   if(!group) { showToast('⚠️ Select a group'); return; }
-  if(!amount || isNaN(amount)) { showToast('⚠️ Enter amount'); return; }
+  if(!amount || isNaN(amount) || amount <= 0) { showToast('⚠️ Enter a valid amount'); return; }
   if(!desc) { showToast('⚠️ Enter description'); return; }
+
+  if(entryType !== 'payment' && splitType !== 'personal') {
+    // Validate paid amounts don't exceed total
+    const totalPaid = currentGroupMembers.reduce((s,m) => s + (parseFloat(document.getElementById('paid_'+m)?.value||0)), 0);
+    if(totalPaid > 0 && Math.abs(totalPaid - amount) > 1) {
+      showToast(`⚠️ Paid total (${Math.round(totalPaid).toLocaleString()}) must equal expense amount (${Math.round(amount).toLocaleString()})`);
+      return;
+    }
+    // Validate each paid amount doesn't exceed total
+    for(const m of currentGroupMembers) {
+      const paid = parseFloat(document.getElementById('paid_'+m)?.value||0);
+      if(paid > amount) {
+        showToast(`⚠️ ${m}'s payment (${Math.round(paid).toLocaleString()}) can't exceed total (${Math.round(amount).toLocaleString()})`);
+        return;
+      }
+    }
+    // Validate custom split sums to total
+    if(splitType === 'custom') {
+      const totalSplit = currentGroupMembers.reduce((s,m) => s + (parseFloat(document.getElementById('split_'+m)?.value||0)), 0);
+      if(totalSplit > 0 && Math.abs(totalSplit - amount) > 1) {
+        showToast(`⚠️ Split total (${Math.round(totalSplit).toLocaleString()}) must equal expense amount (${Math.round(amount).toLocaleString()})`);
+        return;
+      }
+    }
+  }
 
   if(entryType==='income') {
     const apt = document.getElementById('addApt').value;
@@ -1446,8 +1481,10 @@ async function saveEntry() {
 
   const shares = entryType==='payment' ? {} : calcShares();
   const id = generateId();
+  const personalTag = shares['_personal'] ? `[Personal: ${shares['_personal']}]` : '';
+  const notesWithPersonal = personalTag ? (notes ? notes + ' ' + personalTag : personalTag) : notes;
   const row = [
-    id, group, date, desc, category, amount, 'EGP', entryType, notes, invoiceUrl,
+    id, group, date, desc, category, amount, 'EGP', entryType, notesWithPersonal, invoiceUrl,
     shares['Sarah']||0, shares['Khaled']||0, shares['OWH']||0, loggedBy
   ];
 
