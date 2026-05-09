@@ -275,6 +275,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
       <button class="pill active" onclick="setSplitType('equal', this)">Equal split</button>
       <button class="pill" onclick="setSplitType('custom', this)">Custom</button>
       <button class="pill" onclick="setSplitType('single', this)">One person bears it</button>
+      <button class="pill" onclick="setSplitType('personal', this)">👤 Personal</button>
     </div>
     <div id="splitRows"></div>
   </div>
@@ -852,12 +853,16 @@ function calcGroupBalances(group) {
 // ============================================================
 function renderExpItem(e) {
   const shares = e.shares || {};
-  const shareChips = Object.entries(shares).map(([m, v]) => {
-    if(Math.abs(v) < 0.1) return '';
-    const cls = v > 0 ? 'share-pos' : 'share-neg';
-    const sign = v > 0 ? '+' : '';
-    return `<span class="share-chip ${cls}">${m}: ${sign}${Math.round(v).toLocaleString()}</span>`;
-  }).join('');
+  const shareValues = Object.entries(shares).map(([m,v]) => [m, parseFloat(v)]);
+  const allZero = shareValues.every(([,v]) => Math.abs(v) < 0.1);
+  const shareChips = allZero
+    ? `<span class="share-chip" style="background:var(--surface3);color:var(--text3)">👤 Personal expense</span>`
+    : shareValues.map(([m, v]) => {
+        if(Math.abs(v) < 0.1) return '';
+        const cls = v > 0 ? 'share-pos' : 'share-neg';
+        const sign = v > 0 ? '+' : '';
+        return `<span class="share-chip ${cls}">${m}: ${sign}${Math.round(v).toLocaleString()}</span>`;
+      }).filter(Boolean).join('');
 
   const isPayment = e.type === 'payment';
   const isIncome = e.type === 'income';
@@ -1307,6 +1312,8 @@ function setSplitType(type, btn) {
   splitType = type;
   document.querySelectorAll('#splitTypePills .pill').forEach(p=>p.classList.remove('active'));
   btn.classList.add('active');
+  const paidSection = document.getElementById('paidBySection');
+  if(paidSection) paidSection.style.display = type==='personal' ? 'none' : 'block';
   updateSplitRows();
 }
 
@@ -1348,6 +1355,13 @@ function updateSplitRows() {
       <select class="form-select" id="singleBearer">
         ${currentGroupMembers.map(m=>`<option value="${m}">${m}</option>`).join('')}
       </select>`;
+  } else if(splitType==='personal') {
+    container.innerHTML = `
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Who is this personal expense for?</div>
+      <select class="form-select" id="personalMember">
+        ${currentGroupMembers.map(m=>`<option value="${m}">${m}</option>`).join('')}
+      </select>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px">👤 This person paid for themselves — no balance impact on others</div>`;
   } else {
     container.innerHTML = currentGroupMembers.map(m => `
       <div class="split-member-row">
@@ -1366,6 +1380,12 @@ function calcShares() {
     paidAmounts[m] = parseFloat(document.getElementById(`paid_${m}`)?.value||0);
   });
   const owedAmounts = {};
+  if(splitType==='personal') {
+    // Personal expense — zero impact on all balances
+    const shares = {};
+    currentGroupMembers.forEach(m => shares[m] = 0);
+    return shares;
+  }
   if(splitType==='equal') {
     const share = amount / currentGroupMembers.length;
     currentGroupMembers.forEach(m => owedAmounts[m] = share);
