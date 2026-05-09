@@ -2486,21 +2486,25 @@ function getRecurringSuggestions() {
   allExpenses.forEach(e => {
     if(e.type !== 'expense' || !e.date) return;
     const month = e.date.substring(0,7);
-    const key = `${e.group}|${(e.description||'').toLowerCase().trim()}`;
+    const key = `${(e.group||'').trim()}|${(e.description||'').toLowerCase().trim().replace(/\s+/g,' ')}`;
     if(!monthCounts[key]) monthCounts[key] = { months: new Set(), amounts: [], group: e.group, description: e.description, category: e.category };
     monthCounts[key].months.add(month);
     monthCounts[key].amounts.push(e.amount);
   });
 
-  // Already marked as recurring
-  const alreadyRecurring = new Set(allRecurring.map(r => `${r.group}|${r.description.toLowerCase().trim()}`));
+  // Already marked as recurring — normalize both sides the same way
+  const alreadyRecurring = new Set(allRecurring.map(r =>
+    `${(r.group||'').trim()}|${(r.description||'').toLowerCase().trim().replace(/\s+/g,' ')}`
+  ));
 
   return Object.entries(monthCounts)
-    .filter(([key, data]) =>
-      data.months.size >= 2 &&
-      !alreadyRecurring.has(key) &&
-      !dismissed.includes(key)
-    )
+    .filter(([key, data]) => {
+      const normalizedKey = key.replace(/\s+/g,' ').trim();
+      return data.months.size >= 2 &&
+        !alreadyRecurring.has(normalizedKey) &&
+        !dismissed.includes(key) &&
+        !dismissed.includes(normalizedKey);
+    })
     .map(([key, data]) => ({
       key,
       description: data.description,
