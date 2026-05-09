@@ -1497,6 +1497,12 @@ async function saveEntry() {
       shares:{ Sarah: shares['Sarah']||0, Khaled: shares['Khaled']||0, OWH: shares['OWH']||0 }, loggedBy });
 
     if(window.editingExpenseId) {
+      // Delete old row from sheet by ID, then the new row was already appended above
+      await fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain'},
+        body: JSON.stringify({ action: 'deleteById', sheet: 'Expenses', id: window.editingExpenseId })
+      });
       const oldIdx = allExpenses.findIndex(e=>e.id===window.editingExpenseId);
       if(oldIdx > -1) allExpenses.splice(oldIdx, 1);
       window.editingExpenseId = null;
@@ -1680,10 +1686,15 @@ async function addInvoiceToExpense(id, input) {
   reader.onload = async (ev) => {
     try {
       const url = await uploadInvoice(ev.target.result, file.name, file.type);
+      if(!url) { showToast('❌ Upload failed — no URL returned'); return; }
+      // Update by ID using Apps Script
+      await fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: {'Content-Type': 'text/plain'},
+        body: JSON.stringify({ action: 'updateById', sheet: 'Expenses', id: id, col: 10, value: url })
+      });
       const idx = allExpenses.findIndex(e=>e.id===id);
-      const rowNum = idx + 2;
-      await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'update', sheet:'Expenses', range:`Expenses!J${rowNum}`, value:url}) });
-      allExpenses[idx].invoiceUrl = url;
+      if(idx > -1) allExpenses[idx].invoiceUrl = url;
       openExpModal(id);
       showToast('✅ Invoice added!');
     } catch(e) { showToast('❌ Upload failed: ' + e.message); }
