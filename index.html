@@ -190,6 +190,8 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   <button class="nav-tab" onclick="showPage('expenses')"><span class="tab-icon">📋</span>Expenses</button>
   <button class="nav-tab" onclick="showPage('stats')"><span class="tab-icon">📊</span>Stats</button>
   <button class="nav-tab" onclick="showPage('groups')"><span class="tab-icon">👥</span>Groups</button>
+  <button class="nav-tab" onclick="showPage('search')"><span class="tab-icon">🔍</span>Search</button>
+  <button class="nav-tab" onclick="showPage('recurring')"><span class="tab-icon">🔁</span>Recurring</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -217,13 +219,29 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Amount (EGP)</label>
-        <input type="number" class="form-input" id="addAmount" placeholder="0" inputmode="decimal">
+        <label class="form-label">Amount</label>
+        <input type="number" class="form-input" id="addAmount" placeholder="0" inputmode="decimal" oninput="updateCurrencyPreview()">
       </div>
       <div class="form-group">
-        <label class="form-label">Date</label>
-        <input type="date" class="form-input" id="addDate">
+        <label class="form-label">Currency</label>
+        <select class="form-select" id="addCurrency" onchange="updateCurrencyPreview()">
+          <option value="EGP">🇪🇬 EGP</option>
+          <option value="USD">🇺🇸 USD</option>
+          <option value="EUR">🇪🇺 EUR</option>
+          <option value="GBP">🇬🇧 GBP</option>
+          <option value="SAR">🇸🇦 SAR</option>
+          <option value="AED">🇦🇪 AED</option>
+        </select>
       </div>
+    </div>
+    <div id="currencyPreview" style="display:none;background:var(--surface3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--text2)"></div>
+    <div class="form-group" id="exchangeRateRow" style="display:none">
+      <label class="form-label">Exchange Rate (1 <span id="rateFromLabel">USD</span> = ? EGP)</label>
+      <input type="number" class="form-input" id="addExchangeRate" placeholder="e.g. 50" inputmode="decimal" oninput="updateCurrencyPreview()">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input type="date" class="form-input" id="addDate">
     </div>
     <div class="form-group">
       <label class="form-label">Description</label>
@@ -355,6 +373,18 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   <!-- INCOME BY APT -->
   <div class="section-title" style="margin-top:12px">Income by Apartment</div>
   <div class="card" id="incomeChart"></div>
+
+  <!-- TOP EXPENSES -->
+  <div class="section-title" style="margin-top:12px">Top 5 Expenses</div>
+  <div class="card" id="topExpenses"></div>
+
+  <!-- MONTHLY AVERAGE -->
+  <div class="section-title" style="margin-top:12px">vs Monthly Average</div>
+  <div class="card" id="monthlyAverage"></div>
+
+  <!-- CATEGORY TRENDS -->
+  <div class="section-title" style="margin-top:12px">Category Trends (6 months)</div>
+  <div class="card" id="categoryTrends"></div>
 </div>
 
 <!-- ===== GROUPS PAGE ===== -->
@@ -385,6 +415,105 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
       <button onclick="closeSettleModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
     </div>
     <div id="settleContent"></div>
+  </div>
+</div>
+
+<!-- ===== SEARCH PAGE ===== -->
+<div class="page" id="page-search">
+  <div class="card" style="margin-bottom:12px">
+    <input type="text" class="form-input" id="searchQuery" placeholder="🔍 Search description, category..." 
+      oninput="runSearch()" style="margin-bottom:10px">
+    <div class="form-row">
+      <div>
+        <label class="form-label">From</label>
+        <input type="date" class="form-input" id="searchFrom" onchange="runSearch()">
+      </div>
+      <div>
+        <label class="form-label">To</label>
+        <input type="date" class="form-input" id="searchTo" onchange="runSearch()">
+      </div>
+    </div>
+    <div class="pills" style="margin-top:10px" id="searchGroupFilter">
+      <button class="pill active" onclick="setSearchGroup('all',this)">All</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+      <div id="searchCount" style="font-size:11px;color:var(--text3)"></div>
+      <button class="btn btn-outline btn-sm" onclick="clearSearch()">Clear</button>
+    </div>
+  </div>
+  <div id="searchResults"></div>
+</div>
+
+<!-- ===== RECURRING PAGE ===== -->
+<div class="page" id="page-recurring">
+  <div id="recurringDueBanner"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div class="section-title" style="margin:0">Recurring Expenses</div>
+    <button class="btn btn-primary btn-sm" onclick="openAddRecurringModal()" style="width:auto;padding:8px 14px">➕ Add</button>
+  </div>
+  <div id="recurringList"><div class="loading"><div class="spinner"></div></div></div>
+</div>
+
+<!-- ===== ADD RECURRING MODAL ===== -->
+<div class="modal-overlay" id="addRecurringModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div class="modal-title">🔁 Add Recurring Expense</div>
+      <button onclick="closeAddRecurringModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <input type="text" class="form-input" id="recDesc" placeholder="e.g. Amal salary">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Typical Amount (EGP)</label>
+        <input type="number" class="form-input" id="recAmount" placeholder="0" inputmode="decimal">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Day of month</label>
+        <input type="number" class="form-input" id="recDay" placeholder="e.g. 1" min="1" max="31" inputmode="numeric">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Group</label>
+      <select class="form-select" id="recGroup"></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Category</label>
+      <select class="form-select" id="recCategory">
+        <option value="Services">Services</option>
+        <option value="Maintenance">Maintenance</option>
+        <option value="Groceries">Supplies</option>
+        <option value="Electricity">Electricity</option>
+        <option value="TV/Phone/Internet">Internet/Phone</option>
+        <option value="Cleaning">Cleaning</option>
+        <option value="General">General</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Paid by</label>
+      <select class="form-select" id="recPaidBy">
+        <option value="Sarah">Sarah</option>
+        <option value="Khaled">Khaled</option>
+        <option value="OWH">OWH</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Split</label>
+      <select class="form-select" id="recSplit">
+        <option value="equal">Equal split</option>
+        <option value="personal">Personal (no split)</option>
+        <option value="payer">Payer bears it all</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes</label>
+      <input type="text" class="form-input" id="recNotes" placeholder="Optional notes">
+    </div>
+    <button class="btn btn-primary" onclick="saveRecurring()">💾 Save Recurring</button>
   </div>
 </div>
 
@@ -457,7 +586,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 // ============================================================
 const SHEET_ID = '1RnoTVR0o1UMkjme3iPeC0XziA28vqTVw2Ij-arsQlbc';
 const API_KEY  = 'AIzaSyCHqfBKYYE2qpjmNlzgposZrHtVchEpAmo';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz3QqfkuWkGcSukIJKNF6StC4qr7D4xxJfTZVIyOA2ns-iqb4egkWbsVvLNvSn_GPZNmA/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxPMl1HQiSeLLmLsiOheD-s64tqSAoJPgW0lO31kVa_ZsrCGqIqg39h-yXcU_ydcvdQdQ/exec';
 const BASE_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values`;
 
 // ============================================================
@@ -793,6 +922,7 @@ function renderHome() {
     <button onclick="openDateRangeModal()" style="background:var(--primary);border:none;color:white;font-weight:700;cursor:pointer;font-family:Cairo,sans-serif;font-size:10px;padding:3px 8px;border-radius:6px">Change</button>
   </div>`;
   html += historyNote;
+  html += `<div id="homeDueBanner"></div>`;
   html += `<div class="section-title">Current Balances</div>`;
 
   // Calculate balances per group
@@ -886,6 +1016,7 @@ function renderExpItem(e) {
       </div>
       <div style="text-align:left">
         <div class="exp-amount">${e.amount.toLocaleString()} EGP</div>
+        ${(()=>{ const m=(e.notes||'').match(/\[(\d+\.?\d*) (\w+) @ ([\d.]+)\]/); return m?`<div style="font-size:9px;color:var(--text3)">${m[1]} ${m[2]}</div>`:''; })()}
         ${e.invoiceUrl ? `<div style="font-size:10px;color:var(--accent-dark);margin-top:2px">📎 Invoice</div>` : ''}
       </div>
     </div>
@@ -1252,6 +1383,119 @@ function updateStats() {
       <div class="bar-label"><span>🏠 ${apt}</span><span>${Math.round(amt).toLocaleString()} EGP</span></div>
       <div class="bar-track"><div class="bar-fill income" style="width:${(amt/maxApt*100).toFixed(0)}%"></div></div>
     </div>`).join('') : '<div style="color:var(--text3);text-align:center;padding:12px">No income recorded</div>';
+
+  // TOP 5 EXPENSES
+  let topExps = [];
+  if(isCurrentMonth) {
+    topExps = allExpenses.filter(e=>e.type==='expense'&&e.date&&e.date.startsWith(statsMonth)&&(statsGroupFilter==='all'||e.group===statsGroupFilter))
+      .sort((a,b)=>b.amount-a.amount).slice(0,5);
+  } else {
+    // Use category data from monthly totals — can't get individual expenses for past months
+    topExps = null;
+  }
+  const topEl = document.getElementById('topExpenses');
+  if(topEl) {
+    if(topExps && topExps.length > 0) {
+      topEl.innerHTML = topExps.map((e,i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;${i>0?'border-top:1px solid var(--border)':''}">
+          <div style="font-size:18px;font-weight:900;color:var(--border);min-width:24px">${i+1}</div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700">${e.description}</div>
+            <div style="font-size:11px;color:var(--text3)">${e.group} • ${e.category||'Other'}</div>
+          </div>
+          <div style="font-size:14px;font-weight:900;color:var(--primary)">${Math.round(e.amount).toLocaleString()} EGP</div>
+        </div>`).join('');
+    } else if(topExps === null) {
+      topEl.innerHTML = '<div style="color:var(--text3);text-align:center;padding:12px;font-size:12px">Individual transactions not available for past months</div>';
+    } else {
+      topEl.innerHTML = '<div style="color:var(--text3);text-align:center;padding:12px">No expenses</div>';
+    }
+  }
+
+  // MONTHLY AVERAGE vs CURRENT
+  const avgEl = document.getElementById('monthlyAverage');
+  if(avgEl && sortedCat.length > 0) {
+    // Calculate average per category from last 6 months of MonthlyTotals
+    const avgCats = {};
+    const avgMonths = 6;
+    for(let i=1; i<=avgMonths; i++) {
+      const d = new Date(y, mo-1-i, 1);
+      const mStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const mTotals = allMonthlyTotals.filter(m=>m.month===mStr&&(statsGroupFilter==='all'||m.group===statsGroupFilter));
+      mTotals.forEach(m => Object.entries(m.categories||{}).forEach(([c,v])=>{ avgCats[c]=(avgCats[c]||0)+v; }));
+    }
+    Object.keys(avgCats).forEach(c => avgCats[c] = avgCats[c]/avgMonths);
+
+    avgEl.innerHTML = sortedCat.slice(0,6).map(([cat,amt]) => {
+      const avg = avgCats[cat]||0;
+      const diff = amt - avg;
+      const pct = avg > 0 ? ((diff/avg)*100).toFixed(0) : null;
+      const trend = diff > 10 ? `<span style="color:var(--danger);font-size:10px;font-weight:700">▲ ${pct}% above avg</span>`
+                  : diff < -10 ? `<span style="color:var(--ok);font-size:10px;font-weight:700">▼ ${Math.abs(pct)}% below avg</span>`
+                  : `<span style="color:var(--text3);font-size:10px">≈ on average</span>`;
+      return `<div class="bar-row">
+        <div class="bar-label">
+          <span>${getCatIcon(cat)} ${cat}</span>
+          <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+            <span style="font-weight:900">${Math.round(amt).toLocaleString()} EGP</span>
+            ${trend}
+          </span>
+        </div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <div style="flex:1">
+            <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden;margin-bottom:2px">
+              <div style="height:100%;width:${Math.min(amt/(Math.max(...sortedCat.map(([,v])=>v))||1)*100,100).toFixed(0)}%;background:var(--primary);border-radius:3px"></div>
+            </div>
+            <div style="height:4px;background:var(--bg);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(avg/(Math.max(...sortedCat.map(([,v])=>v))||1)*100,100).toFixed(0)}%;background:var(--accent);border-radius:3px;opacity:0.7"></div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:9px;color:var(--text3);margin-top:2px">avg: ${Math.round(avg).toLocaleString()} EGP</div>
+      </div>`;
+    }).join('') + `<div style="font-size:10px;color:var(--text3);margin-top:8px;display:flex;gap:12px">
+      <span>🔴 This month</span><span>🔵 6-month average</span></div>`;
+  }
+
+  // CATEGORY TRENDS (6 months sparklines)
+  const trendsEl = document.getElementById('categoryTrends');
+  if(trendsEl) {
+    const top6Cats = Object.entries(catTotals12||{}).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([c])=>c);
+    const trendMonths = [];
+    for(let i=5; i>=0; i--) {
+      const d = new Date(y, mo-1-i, 1);
+      trendMonths.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+    }
+
+    trendsEl.innerHTML = top6Cats.map(cat => {
+      const vals = trendMonths.map(mStr => {
+        const mTotals = allMonthlyTotals.filter(m=>m.month===mStr&&(statsGroupFilter==='all'||m.group===statsGroupFilter));
+        let v = mTotals.reduce((s,m)=>s+(m.categories||{})[cat]||0, 0);
+        if(v===0 && mStr===statsMonth) v = catData[cat]||0;
+        return v;
+      });
+      const maxVal = Math.max(...vals, 1);
+      const lastVal = vals[vals.length-1];
+      const prevVal = vals[vals.length-2]||0;
+      const trend = lastVal > prevVal*1.1 ? '📈' : lastVal < prevVal*0.9 ? '📉' : '➡️';
+
+      const sparkline = vals.map((v,i) => {
+        const h = Math.max((v/maxVal*30),1).toFixed(0);
+        return `<div style="flex:1;background:${i===5?'var(--primary)':'var(--accent)'};height:${h}px;border-radius:2px 2px 0 0;opacity:${i===5?1:0.6}"></div>`;
+      }).join('');
+
+      return `<div style="padding:10px 0;${top6Cats.indexOf(cat)>0?'border-top:1px solid var(--border)':''}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:12px;font-weight:700">${getCatIcon(cat)} ${cat}</span>
+          <span style="font-size:12px">${trend} <strong>${Math.round(lastVal).toLocaleString()}</strong> EGP</span>
+        </div>
+        <div style="display:flex;gap:3px;align-items:flex-end;height:32px">${sparkline}</div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);margin-top:3px">
+          <span>${trendMonths[0].substring(5)}</span><span>${trendMonths[5].substring(5)}</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
 }
 
 
@@ -1380,6 +1624,46 @@ function updateSplitRows() {
 
 function autoFillSplit() { if(splitType==='equal') updateSplitRows(); }
 
+// Default exchange rates (user can override)
+const DEFAULT_RATES = { EGP: 1, USD: 50, EUR: 54, GBP: 63, SAR: 13.3, AED: 13.6 };
+
+function updateCurrencyPreview() {
+  const amount = parseFloat(document.getElementById('addAmount').value)||0;
+  const currency = document.getElementById('addCurrency').value;
+  const rateRow = document.getElementById('exchangeRateRow');
+  const preview = document.getElementById('currencyPreview');
+  const rateLabel = document.getElementById('rateFromLabel');
+
+  if(currency === 'EGP') {
+    if(rateRow) rateRow.style.display = 'none';
+    if(preview) preview.style.display = 'none';
+    return;
+  }
+
+  if(rateRow) rateRow.style.display = 'block';
+  if(rateLabel) rateLabel.textContent = currency;
+
+  // Set default rate if empty
+  const rateInput = document.getElementById('addExchangeRate');
+  if(rateInput && !rateInput.value) rateInput.value = DEFAULT_RATES[currency] || '';
+
+  const rate = parseFloat(document.getElementById('addExchangeRate')?.value||0);
+  const egpAmount = amount * rate;
+
+  if(preview && amount > 0 && rate > 0) {
+    preview.style.display = 'block';
+    preview.innerHTML = `💱 ${amount.toLocaleString()} ${currency} × ${rate} = <strong>${Math.round(egpAmount).toLocaleString()} EGP</strong>`;
+  }
+}
+
+function getEGPAmount() {
+  const amount = parseFloat(document.getElementById('addAmount').value)||0;
+  const currency = document.getElementById('addCurrency').value;
+  if(currency === 'EGP') return amount;
+  const rate = parseFloat(document.getElementById('addExchangeRate')?.value||DEFAULT_RATES[currency]||1);
+  return Math.round(amount * rate);
+}
+
 function calcShares() {
   const amount = parseFloat(document.getElementById('addAmount').value)||0;
   const paidAmounts = {};
@@ -1431,7 +1715,12 @@ function handleFileSelect(input) {
 
 async function saveEntry() {
   const group = document.getElementById('addGroup').value;
-  const amount = parseFloat(document.getElementById('addAmount').value);
+  const rawAmount = parseFloat(document.getElementById('addAmount').value);
+  const currency = document.getElementById('addCurrency')?.value || 'EGP';
+  const exchangeRate = parseFloat(document.getElementById('addExchangeRate')?.value||1);
+  const amount = currency === 'EGP' ? rawAmount : Math.round(rawAmount * exchangeRate);
+  // Store original currency info in notes if not EGP
+  const currencyNote = currency !== 'EGP' ? `[${rawAmount} ${currency} @ ${exchangeRate}]` : '';
   const date = document.getElementById('addDate').value;
   const desc = document.getElementById('addDesc').value.trim();
   const notes = document.getElementById('addNotes').value.trim();
@@ -1485,7 +1774,7 @@ async function saveEntry() {
   const shares = entryType==='payment' ? {} : calcShares();
   const id = generateId();
   const personalTag = shares['_personal'] ? `[Personal: ${shares['_personal']}]` : '';
-  const notesWithPersonal = personalTag ? (notes ? notes + ' ' + personalTag : personalTag) : notes;
+  const notesWithPersonal = [notes, personalTag, currencyNote].filter(Boolean).join(' ');
   const row = [
     id, group, date, desc, category, amount, 'EGP', entryType, notesWithPersonal, invoiceUrl,
     shares['Sarah']||0, shares['Khaled']||0, shares['OWH']||0, loggedBy
@@ -1514,6 +1803,10 @@ async function saveEntry() {
     document.getElementById('addDesc').value = '';
     document.getElementById('addNotes').value = '';
     document.getElementById('uploadPreview').innerHTML = '';
+    if(document.getElementById('addCurrency')) document.getElementById('addCurrency').value = 'EGP';
+    if(document.getElementById('addExchangeRate')) document.getElementById('addExchangeRate').value = '';
+    if(document.getElementById('exchangeRateRow')) document.getElementById('exchangeRateRow').style.display = 'none';
+    if(document.getElementById('currencyPreview')) document.getElementById('currencyPreview').style.display = 'none';
     selectedFile = null; selectedFileBase64 = null;
 
     // Update MonthlyTotals for current month
@@ -1854,6 +2147,179 @@ async function uploadInvoice(base64, filename, mimeType) {
 }
 
 // ============================================================
+// RECURRING EXPENSES
+// ============================================================
+let allRecurring = []; // loaded from Recurring sheet
+
+async function loadRecurring() {
+  try {
+    const rows = await fetchSheet('Recurring!A2:H100');
+    allRecurring = rows.filter(r=>r[0]).map(r => ({
+      id: r[0], description: r[1], amount: parseFloat(r[2]||0),
+      day: parseInt(r[3]||1), group: r[4], category: r[5],
+      paidBy: r[6], split: r[7]||'equal', notes: r[8]||''
+    }));
+    renderRecurringPage();
+    checkRecurringDue();
+  } catch(e) {
+    console.error('Recurring load error:', e);
+    allRecurring = [];
+  }
+}
+
+function renderRecurringPage() {
+  // Populate group select in modal
+  const grpSel = document.getElementById('recGroup');
+  if(grpSel && grpSel.children.length === 0) {
+    allGroups.forEach(g => grpSel.innerHTML += `<option value="${g.name}">${g.name}</option>`);
+  }
+
+  const container = document.getElementById('recurringList');
+  if(!container) return;
+
+  if(allRecurring.length === 0) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">🔁</div><div>No recurring expenses yet</div><div style="font-size:11px;color:var(--text3);margin-top:4px">Add salaries, subscriptions, or any monthly fixed costs</div></div>`;
+    return;
+  }
+
+  const now = new Date();
+  const curMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+  container.innerHTML = allRecurring.map(r => {
+    const logged = isLoggedThisMonth(r, curMonth);
+    return `<div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="flex:1">
+          <div style="font-size:14px;font-weight:900">${r.description}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${r.group} • Day ${r.day} of month • ${r.category}</div>
+          <div style="font-size:11px;color:var(--text3)">Paid by ${r.paidBy} • ${r.split} split</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-right:8px">
+          <div style="font-size:15px;font-weight:900;color:var(--primary)">${r.amount.toLocaleString()} EGP</div>
+          <div style="font-size:10px;margin-top:2px;color:${logged?'var(--ok)':'var(--warn)'};font-weight:700">${logged?'✅ Logged':'⏳ Due'}</div>
+        </div>
+        <button class="btn btn-danger-soft btn-sm" onclick="deleteRecurring('${r.id}')" style="padding:4px 8px">🗑️</button>
+      </div>
+      ${!logged ? `<button class="btn btn-primary" onclick="logRecurring('${r.id}')" style="margin-top:10px;padding:9px">📝 Log this month</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function isLoggedThisMonth(recurring, curMonth) {
+  // Check if this recurring expense was logged this month
+  return allExpenses.some(e =>
+    e.group === recurring.group &&
+    e.date && e.date.startsWith(curMonth) &&
+    (e.description||'').toLowerCase().includes((recurring.description||'').toLowerCase()) &&
+    e.type === 'expense'
+  );
+}
+
+function checkRecurringDue() {
+  const now = new Date();
+  const curMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const due = allRecurring.filter(r => !isLoggedThisMonth(r, curMonth));
+  const banner = document.getElementById('recurringDueBanner');
+
+  if(due.length === 0 || !banner) return;
+
+  // Show on home page too
+  const homeDue = document.getElementById('homeDueBanner');
+  if(homeDue) {
+    homeDue.innerHTML = `<div style="background:#fff3e0;border:1px solid #e8a838;border-radius:12px;padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="showPage('recurring')">
+      <div style="font-size:13px;font-weight:700;color:var(--warn)">🔁 ${due.length} recurring expense${due.length>1?'s':''} not yet logged this month</div>
+      <div style="font-size:11px;color:var(--text2);margin-top:3px">${due.map(r=>r.description).join(', ')} — tap to log</div>
+    </div>`;
+  }
+}
+
+function logRecurring(id) {
+  const r = allRecurring.find(x=>x.id===id);
+  if(!r) return;
+  // Pre-fill the add form
+  showPage('add');
+  setTimeout(() => {
+    document.getElementById('addGroup').value = r.group;
+    updateGroupMembers();
+    document.getElementById('addAmount').value = r.amount;
+    document.getElementById('addDate').valueAsDate = new Date();
+    document.getElementById('addDesc').value = r.description;
+    document.getElementById('addNotes').value = r.notes || '';
+    document.getElementById('addCategory').value = r.category;
+    renderCatGrid(r.category);
+    // Set paid by
+    if(r.paidBy && currentGroupMembers.includes(r.paidBy)) {
+      const paidInput = document.getElementById('paid_' + r.paidBy);
+      if(paidInput) paidInput.value = r.amount;
+    }
+    // Set split type
+    if(r.split === 'personal') {
+      setSplitType('personal', document.querySelector('#splitTypePills .pill:last-child'));
+    } else if(r.split === 'payer') {
+      setSplitType('single', document.querySelectorAll('#splitTypePills .pill')[2]);
+      setTimeout(() => {
+        const bearer = document.getElementById('singleBearer');
+        if(bearer) bearer.value = r.paidBy;
+      }, 100);
+    }
+    showToast(`📝 Pre-filled from recurring: ${r.description}`);
+  }, 100);
+}
+
+async function deleteRecurring(id) {
+  if(!confirm('Remove this recurring expense?')) return;
+  try {
+    await fetch(SCRIPT_URL, {
+      method: 'POST', headers: {'Content-Type': 'text/plain'},
+      body: JSON.stringify({ action: 'deleteById', sheet: 'Recurring', id })
+    });
+    allRecurring = allRecurring.filter(r=>r.id!==id);
+    renderRecurringPage();
+    showToast('✅ Removed');
+  } catch(e) { showToast('❌ Error: ' + e.message); }
+}
+
+function openAddRecurringModal() {
+  const grpSel = document.getElementById('recGroup');
+  if(grpSel) {
+    grpSel.innerHTML = '';
+    allGroups.forEach(g => grpSel.innerHTML += `<option value="${g.name}">${g.name}</option>`);
+  }
+  document.getElementById('addRecurringModal').classList.add('open');
+}
+
+function closeAddRecurringModal() {
+  document.getElementById('addRecurringModal').classList.remove('open');
+}
+
+async function saveRecurring() {
+  const desc = document.getElementById('recDesc').value.trim();
+  const amount = parseFloat(document.getElementById('recAmount').value||0);
+  const day = parseInt(document.getElementById('recDay').value||1);
+  const group = document.getElementById('recGroup').value;
+  const category = document.getElementById('recCategory').value;
+  const paidBy = document.getElementById('recPaidBy').value;
+  const split = document.getElementById('recSplit').value;
+  const notes = document.getElementById('recNotes').value.trim();
+
+  if(!desc) { showToast('⚠️ Enter description'); return; }
+  if(!group) { showToast('⚠️ Select group'); return; }
+
+  const id = generateId();
+  const row = [id, desc, amount, day, group, category, paidBy, split, notes];
+
+  try {
+    showToast('⏳ Saving...');
+    await writeToSheet('Recurring', [row]);
+    allRecurring.push({ id, description:desc, amount, day, group, category, paidBy, split, notes });
+    closeAddRecurringModal();
+    renderRecurringPage();
+    checkRecurringDue();
+    showToast('✅ Recurring expense added!');
+  } catch(e) { showToast('❌ Error: ' + e.message); }
+}
+
+// ============================================================
 // HELPERS
 // ============================================================
 function generateId() { return Math.random().toString(36).substr(2,8); }
@@ -1862,9 +2328,116 @@ function showPage(name) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
-  const tabs = ['home','add','expenses','stats','groups'];
+  const tabs = ['home','add','expenses','stats','groups','search','recurring'];
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)]?.classList.add('active');
   if(name==='add') setTimeout(() => renderCatGrid(document.getElementById('addCategory').value || 'Groceries'), 50);
+  if(name==='search') initSearch();
+}
+
+// ============================================================
+// SEARCH
+// ============================================================
+let searchGroupFilter = 'all';
+
+function initSearch() {
+  // Populate group filter
+  const container = document.getElementById('searchGroupFilter');
+  if(container && container.children.length <= 1) {
+    allGroups.forEach(g => {
+      container.innerHTML += `<button class="pill" onclick="setSearchGroup('${g.name}',this)">${g.name}</button>`;
+    });
+  }
+  // Set default date range to last 4 months
+  const to = new Date();
+  const from = new Date();
+  from.setMonth(from.getMonth() - 4);
+  if(!document.getElementById('searchTo').value)
+    document.getElementById('searchTo').value = to.toISOString().split('T')[0];
+  if(!document.getElementById('searchFrom').value)
+    document.getElementById('searchFrom').value = from.toISOString().split('T')[0];
+  runSearch();
+}
+
+function setSearchGroup(group, btn) {
+  searchGroupFilter = group;
+  document.querySelectorAll('#searchGroupFilter .pill').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  runSearch();
+}
+
+function clearSearch() {
+  document.getElementById('searchQuery').value = '';
+  document.getElementById('searchFrom').value = '';
+  document.getElementById('searchTo').value = '';
+  searchGroupFilter = 'all';
+  document.querySelectorAll('#searchGroupFilter .pill').forEach((p,i)=>{
+    p.classList.toggle('active', i===0);
+  });
+  runSearch();
+}
+
+function runSearch() {
+  const query = (document.getElementById('searchQuery').value||'').toLowerCase().trim();
+  const from = document.getElementById('searchFrom').value;
+  const to = document.getElementById('searchTo').value;
+
+  let results = [...allExpenses];
+
+  // Filter by group
+  if(searchGroupFilter !== 'all') results = results.filter(e => e.group === searchGroupFilter);
+
+  // Filter by date range
+  if(from) results = results.filter(e => e.date >= from);
+  if(to) results = results.filter(e => e.date <= to);
+
+  // Filter by query — search description, category, amount, logged by
+  if(query) {
+    results = results.filter(e =>
+      (e.description||'').toLowerCase().includes(query) ||
+      (e.category||'').toLowerCase().includes(query) ||
+      String(e.amount).includes(query) ||
+      (e.loggedBy||'').toLowerCase().includes(query) ||
+      (e.notes||'').toLowerCase().includes(query)
+    );
+  }
+
+  // Sort newest first
+  results.sort((a,b) => b.date.localeCompare(a.date));
+
+  // Update count
+  const countEl = document.getElementById('searchCount');
+  if(countEl) countEl.textContent = `${results.length} transaction${results.length!==1?'s':''} found`;
+
+  // Render results
+  const container = document.getElementById('searchResults');
+  if(!container) return;
+
+  if(results.length === 0) {
+    container.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div><div>No transactions found</div><div style="font-size:11px;color:var(--text3);margin-top:4px">Try a different search or date range</div></div>`;
+    return;
+  }
+
+  // Group by month
+  const byMonth = {};
+  results.forEach(e => {
+    const month = e.date ? e.date.substring(0,7) : 'Unknown';
+    if(!byMonth[month]) byMonth[month] = [];
+    byMonth[month].push(e);
+  });
+
+  let html = '';
+  Object.keys(byMonth).sort().reverse().forEach(month => {
+    const [y,m] = month.split('-');
+    const label = new Date(y,m-1,1).toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+    const monthTotal = byMonth[month].filter(e=>e.type==='expense').reduce((s,e)=>s+e.amount,0);
+    html += `<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;display:flex;justify-content:space-between">
+      <span>${label}</span>
+      <span>${Math.round(monthTotal).toLocaleString()} EGP</span>
+    </div>`;
+    html += byMonth[month].map(e => renderExpItem(e)).join('');
+  });
+
+  container.innerHTML = html;
 }
 
 function showToast(msg) {
@@ -1897,7 +2470,7 @@ function setPresetYear(yearsAgo) {
   document.getElementById('drTo').value = `${year}-12-31`;
 }
 
-['expenseModal','settleModal','addGroupModal','dateRangeModal'].forEach(id => {
+['expenseModal','settleModal','addGroupModal','dateRangeModal','addRecurringModal'].forEach(id => {
   const el = document.getElementById(id);
   if(el) el.addEventListener('click', function(e) { if(e.target===this) this.classList.remove('open'); });
 });
