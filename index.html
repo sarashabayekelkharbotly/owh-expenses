@@ -457,7 +457,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 // ============================================================
 const SHEET_ID = '1RnoTVR0o1UMkjme3iPeC0XziA28vqTVw2Ij-arsQlbc';
 const API_KEY  = 'AIzaSyCHqfBKYYE2qpjmNlzgposZrHtVchEpAmo';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx0ViDMkZAbx4qC7_zaYN0OfS5OW4RGEuKOxcjP9FPaWzaXliDeCFnnDflLJqjmrObtrA/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxR2zsY5KoXMx5H8cEL96igr3Ba1QpH-6A6pBVR3yMHl51waJTRzhWizq_bN01wdCMRcw/exec';
 const BASE_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values`;
 
 // ============================================================
@@ -1639,8 +1639,11 @@ async function deleteExpense(id) {
   if(idx===-1) return;
   try {
     showToast('⏳ Deleting...');
-    const rowNum = idx + 2;
-    await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'update', sheet:'Expenses', range:`Expenses!A${rowNum}`, value:'DELETED'}) });
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'text/plain'},
+      body: JSON.stringify({ action: 'deleteById', sheet: 'Expenses', id: id })
+    });
     allExpenses.splice(idx, 1);
     closeExpModal(); renderHome(); renderExpensesPage();
     showToast('✅ Deleted');
