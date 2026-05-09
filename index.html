@@ -208,10 +208,13 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   </div>
   <div style="font-size:36px;font-weight:900;color:#1a1a1a;font-family:Georgia,serif;font-style:italic;letter-spacing:-1px">WeShare</div>
   <div style="font-size:11px;color:#cc5f5f;letter-spacing:3px;margin-top:6px;font-weight:600">SHARED EXPENSES</div>
-  <div style="margin-top:40px;display:flex;gap:8px">
-    <div style="width:6px;height:6px;border-radius:50%;background:#cc5f5f;opacity:0.3;animation:pulse 1.2s ease infinite"></div>
-    <div style="width:6px;height:6px;border-radius:50%;background:#cc5f5f;opacity:0.7;animation:pulse 1.2s ease 0.2s infinite"></div>
-    <div style="width:6px;height:6px;border-radius:50%;background:#cc5f5f;opacity:0.3;animation:pulse 1.2s ease 0.4s infinite"></div>
+  <div style="margin-top:32px;text-align:center">
+    <div id="splashMsg" style="font-size:12px;color:#cc5f5f;letter-spacing:1px;min-height:18px;transition:opacity 0.3s">Starting...</div>
+    <div style="margin-top:10px;display:flex;gap:8px;justify-content:center">
+      <div style="width:6px;height:6px;border-radius:50%;background:#cc5f5f;opacity:0.3;animation:pulse 1.2s ease infinite"></div>
+      <div style="width:6px;height:6px;border-radius:50%;background:#cc5f5f;opacity:0.7;animation:pulse 1.2s ease 0.2s infinite"></div>
+      <div style="width:6px;height:6px;border-radius:50%;background:#cc5f5f;opacity:0.3;animation:pulse 1.2s ease 0.4s infinite"></div>
+    </div>
   </div>
 </div>
 <style>
@@ -926,6 +929,8 @@ async function loadAllData() {
   const setMsg = (msg) => {
     const el = document.getElementById('loadingMsg');
     if(el) el.textContent = msg;
+    const splash = document.getElementById('splashMsg');
+    if(splash) splash.textContent = msg;
     console.log(msg);
   };
   try {
