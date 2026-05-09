@@ -180,7 +180,10 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
     <div class="header-title">⚖️ WeShare</div>
     <div class="header-sub" id="headerDate"></div>
   </div>
-  <button class="sync-btn" onclick="loadAllData()">🔄</button>
+  <div style="display:flex;gap:6px;align-items:center">
+    <button class="sync-btn" onclick="loadAllData()" title="Reload data" style="font-size:18px">↻</button>
+    <button class="sync-btn" onclick="showPage('settings')" title="Settings" style="font-size:18px">⚙️</button>
+  </div>
 </div>
 
 <!-- NAV -->
@@ -192,7 +195,6 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   <button class="nav-tab" onclick="showPage('groups')"><span class="tab-icon">👥</span>Groups</button>
   <button class="nav-tab" onclick="showPage('search')"><span class="tab-icon">🔍</span>Search</button>
   <button class="nav-tab" onclick="showPage('recurring')"><span class="tab-icon">🔁</span>Recurring</button>
-  <button class="nav-tab" onclick="showPage('settings')"><span class="tab-icon">⚙️</span>Settings</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -563,6 +565,17 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
         <option value="personal">Personal (no split)</option>
         <option value="payer">Payer bears it all</option>
       </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">End Date (optional)</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="form-select" id="recEndType" onchange="toggleEndDate(this)" style="width:140px">
+          <option value="continuous">♾️ Continuous</option>
+          <option value="date">📅 Ends on date</option>
+        </select>
+        <input type="date" class="form-input" id="recEndDate" style="display:none;flex:1">
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Leave continuous for ongoing expenses like salaries</div>
     </div>
     <div class="form-group">
       <label class="form-label">Notes</label>
@@ -1690,6 +1703,11 @@ function updateSplitRows() {
 
 function autoFillSplit() { if(splitType==='equal') updateSplitRows(); }
 
+function toggleEndDate(sel) {
+  const dateInput = document.getElementById('recEndDate');
+  if(dateInput) dateInput.style.display = sel.value === 'date' ? 'block' : 'none';
+}
+
 function toggleRecurringDay(checkbox) {
   const dayRow = document.getElementById('recurringDayRow');
   const bg = document.getElementById('recurringToggleBg');
@@ -2245,8 +2263,9 @@ async function loadRecurring() {
     const rows = await fetchSheet('Recurring!A2:I200');
     allRecurring = rows.filter(r=>r[0]).map(r => ({
       id: r[0], description: r[1], amount: parseFloat(r[2]||0),
-      day: parseInt(r[3]||1), group: r[4], category: r[5],
-      paidBy: r[6], split: r[7]||'equal', notes: r[8]||''
+      day: parseInt(r[3]||0), group: r[4], category: r[5],
+      paidBy: r[6], split: r[7]||'equal', notes: r[8]||'',
+      endDate: r[9]||''
     }));
   } catch(e) {
     // Sheet may not exist yet — that's ok
@@ -2265,11 +2284,12 @@ function renderRecurringPage() {
     allGroups.forEach(g => grpSel.innerHTML += `<option value="${g.name}">${g.name}</option>`);
   }
 
-  // Build group filter pills
+  // Build group filter pills - always rebuild to ensure groups are loaded
   const filterEl = document.getElementById('recurringGroupFilter');
-  if(filterEl && filterEl.children.length <= 1) {
+  if(filterEl) {
+    filterEl.innerHTML = `<button class="pill ${recurringGroupFilter==='all'?'active':''}" onclick="setRecurringGroup('all',this)">All</button>`;
     allGroups.forEach(g => {
-      filterEl.innerHTML += `<button class="pill" onclick="setRecurringGroup('${g.name}',this)">${g.name}</button>`;
+      filterEl.innerHTML += `<button class="pill ${recurringGroupFilter===g.name?'active':''}" onclick="setRecurringGroup('${g.name}',this)">${g.name}</button>`;
     });
   }
 
@@ -2290,20 +2310,25 @@ function renderRecurringPage() {
   let html = '';
 
   if(suggestions.length > 0) {
+    window._suggestionMap = {};
     html += `<div class="section-title">💡 Suggested Recurring</div>`;
-    html += suggestions.map(s => `
-      <div style="background:#f0f7ff;border:1px solid var(--accent);border-radius:12px;padding:12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div style="flex:1">
+    html += suggestions.map(s => {
+      const sid = 'sug_' + Math.random().toString(36).substr(2,8);
+      window._suggestionMap[sid] = s;
+      return `<div style="background:#f0f7ff;border:1px solid var(--accent);border-radius:12px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:700">${s.description}</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">${s.group} • seen ${s.count}x in last 4 months • avg ${Math.round(s.avgAmount).toLocaleString()} EGP</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:3px">${s.group} • seen ${s.count}x in last 4 months</div>
+            <div style="font-size:11px;color:var(--primary);font-weight:700">avg ${Math.round(s.avgAmount).toLocaleString()} EGP</div>
           </div>
-          <div style="display:flex;gap:6px;flex-shrink:0;margin-right:4px">
-            <button class="btn btn-sm btn-success" onclick="addSuggestion('${encodeURIComponent(JSON.stringify(s))}')">✅ Add</button>
-            <button class="btn btn-sm btn-outline" onclick="dismissSuggestion('${s.key}')">✕</button>
+          <div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">
+            <button class="btn btn-sm btn-success" onclick="addSuggestion('${sid}')">✅ Add</button>
+            <button class="btn btn-sm btn-outline" onclick="dismissSuggestion('${s.key}')">✕ Dismiss</button>
           </div>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     html += `<div class="section-title" style="margin-top:12px">Your Recurring Expenses</div>`;
   }
 
@@ -2326,6 +2351,7 @@ function renderRecurringPage() {
               <div style="font-size:14px;font-weight:900">${r.description}</div>
               <div style="font-size:11px;color:var(--text3);margin-top:2px">${r.group} • ${r.category}</div>
               <div style="font-size:11px;color:var(--text3)">Paid by ${r.paidBy} • ${r.split} split • Alert: day ${alertDay}${r.day>0?' (custom)':' (default)'}</div>
+              ${r.endDate ? `<div style="font-size:11px;color:${r.endDate < curMonth?'var(--ok)':'var(--warn)'};font-weight:700">${r.endDate < curMonth ? '✅ Completed — ended ' + r.endDate : '📅 Ends ' + r.endDate}</div>` : ''}
             </div>
             <div style="text-align:right;flex-shrink:0;margin-left:8px">
               <div style="font-size:15px;font-weight:900;color:var(--primary)">${r.amount.toLocaleString()} EGP</div>
@@ -2370,8 +2396,9 @@ function checkRecurringDue() {
   const curMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const globalReminderDay = appSettings.reminderDay || 24;
   const due = allRecurring.filter(r => {
+    // Skip if past end date
+    if(r.endDate && r.endDate < curMonth + '-01') return false;
     if(isLoggedThisMonth(r, curMonth)) return false;
-    // Use per-item day if set (>0), otherwise fall back to global reminder day
     const alertDay = (r.day && r.day > 0) ? r.day : globalReminderDay;
     return today >= alertDay;
   });
@@ -2465,19 +2492,18 @@ function dismissSuggestion(key) {
   showToast('Suggestion dismissed');
 }
 
-function addSuggestion(encodedData) {
-  try {
-    const s = JSON.parse(decodeURIComponent(encodedData));
-    // Pre-fill the add recurring modal
-    document.getElementById('recDesc').value = s.description;
-    document.getElementById('recAmount').value = Math.round(s.avgAmount);
-    document.getElementById('recDay').value = '';
-    const grpSel = document.getElementById('recGroup');
-    if(grpSel) grpSel.value = s.group;
-    const catSel = document.getElementById('recCategory');
-    if(catSel && s.category) catSel.value = s.category;
-    openAddRecurringModal();
-  } catch(e) { showToast('Error: ' + e.message); }
+function addSuggestion(sid) {
+  const s = (window._suggestionMap || {})[sid];
+  if(!s) { showToast('❌ Suggestion not found, try refreshing'); return; }
+  document.getElementById('recDesc').value = s.description;
+  document.getElementById('recAmount').value = Math.round(s.avgAmount);
+  document.getElementById('recDay').value = '';
+  document.getElementById('recEndDate').value = '';
+  const grpSel = document.getElementById('recGroup');
+  if(grpSel) { grpSel.innerHTML=''; allGroups.forEach(g=>grpSel.innerHTML+=`<option value="${g.name}">${g.name}</option>`); grpSel.value=s.group; }
+  const catSel = document.getElementById('recCategory');
+  if(catSel && s.category) catSel.value = s.category;
+  openAddRecurringModal();
 }
 
 function editRecurring(id) {
@@ -2495,7 +2521,18 @@ function editRecurring(id) {
   const splitSel = document.getElementById('recSplit');
   if(splitSel) splitSel.value = r.split;
   document.getElementById('recNotes').value = r.notes || '';
-  // Store editing ID
+  const endTypeSel = document.getElementById('recEndType');
+  const endDateInput = document.getElementById('recEndDate');
+  if(endTypeSel && endDateInput) {
+    if(r.endDate) {
+      endTypeSel.value = 'date';
+      endDateInput.value = r.endDate;
+      endDateInput.style.display = 'block';
+    } else {
+      endTypeSel.value = 'continuous';
+      endDateInput.style.display = 'none';
+    }
+  }
   window.editingRecurringId = id;
   openAddRecurringModal();
 }
@@ -2552,12 +2589,14 @@ async function saveRecurring() {
     window.editingRecurringId = null;
   }
 
+  const endType = document.getElementById('recEndType')?.value || 'continuous';
+  const endDate = endType === 'date' ? (document.getElementById('recEndDate')?.value || '') : '';
   const id = generateId();
-  const row = [id, desc, amount, day, group, category, paidBy, split, notes];
+  const row = [id, desc, amount, day, group, category, paidBy, split, notes, endDate];
 
   try {
     await writeToSheet('Recurring', [row]);
-    allRecurring.push({ id, description:desc, amount, day, group, category, paidBy, split, notes });
+    allRecurring.push({ id, description:desc, amount, day, group, category, paidBy, split, notes, endDate });
     closeAddRecurringModal();
     renderRecurringPage();
     checkRecurringDue();
