@@ -448,7 +448,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
     <div class="form-row">
       <div>
         <label class="form-label">From</label>
-        <input type="date" class="form-input" id="searchFrom" onchange="runSearch()">
+        <input type="date" class="form-input" id="searchFrom" onchange="runSearch()" min="2015-01-01">
       </div>
       <div>
         <label class="form-label">To</label>
@@ -545,10 +545,26 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
       <select class="form-select" id="recCategory">
         <option value="Services">Services</option>
         <option value="Maintenance">Maintenance</option>
+        <option value="Cleaning">Cleaning</option>
         <option value="Groceries">Supplies</option>
         <option value="Electricity">Electricity</option>
         <option value="TV/Phone/Internet">Internet/Phone</option>
-        <option value="Cleaning">Cleaning</option>
+        <option value="Heat/gas">Gas/Heat</option>
+        <option value="Gas/fuel">Fuel</option>
+        <option value="Water">Water</option>
+        <option value="Furniture">Furniture</option>
+        <option value="Household supplies">Household Supplies</option>
+        <option value="Dining out">Dining</option>
+        <option value="Music">Music</option>
+        <option value="Games">Games</option>
+        <option value="Sports">Sports</option>
+        <option value="Medical expenses">Medical</option>
+        <option value="Gifts">Gifts</option>
+        <option value="Electronics">Electronics</option>
+        <option value="Rent - 8A">Rent - 8A</option>
+        <option value="Rent - 17A">Rent - 17A</option>
+        <option value="Rent - 28A">Rent - 28A</option>
+        <option value="Rent - Zayed 2000">Rent - Zayed 2000</option>
         <option value="General">General</option>
         <option value="Other">Other</option>
       </select>
@@ -564,9 +580,10 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
     <div class="form-group">
       <label class="form-label">Split</label>
       <select class="form-select" id="recSplit">
-        <option value="equal">Equal split</option>
-        <option value="personal">Personal (no split)</option>
-        <option value="payer">Payer bears it all</option>
+        <option value="equal">Equal split (Sarah & Khaled)</option>
+        <option value="sarah">Sarah bears it all</option>
+        <option value="khaled">Khaled bears it all</option>
+        <option value="owh">OWH bears it all</option>
       </select>
     </div>
     <div class="form-group">
@@ -2440,9 +2457,16 @@ function logRecurring(id) {
       const paidInput = document.getElementById('paid_' + r.paidBy);
       if(paidInput) paidInput.value = r.amount;
     }
-    // Set split type
-    if(r.split === 'personal') {
-      setSplitType('personal', document.querySelector('#splitTypePills .pill:last-child'));
+    // Set split type based on who bears it
+    const bearerMap = { sarah: 'Sarah', khaled: 'Khaled', owh: 'OWH' };
+    if(r.split === 'equal') {
+      setSplitType('equal', document.querySelectorAll('#splitTypePills .pill')[0]);
+    } else if(bearerMap[r.split]) {
+      setSplitType('single', document.querySelectorAll('#splitTypePills .pill')[2]);
+      setTimeout(() => {
+        const bearer = document.getElementById('singleBearer');
+        if(bearer) bearer.value = bearerMap[r.split];
+      }, 100);
     } else if(r.split === 'payer') {
       setSplitType('single', document.querySelectorAll('#splitTypePills .pill')[2]);
       setTimeout(() => {
@@ -2639,10 +2663,10 @@ function initSearch() {
       container.innerHTML += `<button class="pill" onclick="setSearchGroup('${g.name}',this)">${g.name}</button>`;
     });
   }
-  // Set default date range to last 4 months
+  // Set default date range to last 12 months
   const to = new Date();
   const from = new Date();
-  from.setMonth(from.getMonth() - 4);
+  from.setFullYear(from.getFullYear() - 1);
   if(!document.getElementById('searchTo').value)
     document.getElementById('searchTo').value = to.toISOString().split('T')[0];
   if(!document.getElementById('searchFrom').value)
