@@ -471,7 +471,10 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   <div id="recurringDueBanner"></div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <div class="section-title" style="margin:0">Recurring Expenses</div>
-    <button class="btn btn-primary btn-sm" onclick="openAddRecurringModal()" style="width:auto;padding:8px 14px">➕ Add</button>
+    <div style="display:flex;gap:6px">
+      <button class="btn btn-outline btn-sm" onclick="renderRecurringPage()" style="padding:8px">↻</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddRecurringModal()" style="width:auto;padding:8px 14px">➕ Add</button>
+    </div>
   </div>
   <div class="pills" id="recurringGroupFilter" style="margin-bottom:10px">
     <button class="pill active" onclick="setRecurringGroup('all',this)">All</button>
@@ -837,7 +840,9 @@ async function loadDateRange() {
     allExpenses.sort((a,b) => b.date.localeCompare(a.date));
     currentDateRange = { from, to };
     allHistoryLoaded = true;
-    renderHome(); renderExpensesPage(); renderStatsPage();
+    renderHome(); renderExpensesPage();     renderStatsPage();
+    await loadRecurring();
+    renderRecurringPage();
     showToast(`✅ Loaded ${allExpenses.length} transactions`);
   } catch(e) {
     showToast('❌ Error: ' + e.message);
@@ -2618,6 +2623,7 @@ function showPage(name) {
   if(name==='add') setTimeout(() => renderCatGrid(document.getElementById('addCategory').value || 'Groceries'), 50);
   if(name==='search') initSearch();
   if(name==='settings') initSettingsPage();
+  if(name==='recurring') renderRecurringPage();
 }
 
 // ============================================================
