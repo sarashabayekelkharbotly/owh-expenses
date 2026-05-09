@@ -457,7 +457,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 // ============================================================
 const SHEET_ID = '1RnoTVR0o1UMkjme3iPeC0XziA28vqTVw2Ij-arsQlbc';
 const API_KEY  = 'AIzaSyCHqfBKYYE2qpjmNlzgposZrHtVchEpAmo';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxR2zsY5KoXMx5H8cEL96igr3Ba1QpH-6A6pBVR3yMHl51waJTRzhWizq_bN01wdCMRcw/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx8OWovuYEvaT2KLweEfj3-NSIViD0ea_K5aqfDz-ay_HEQN146sNjvJA6p0X6Ek6_VGw/exec';
 const BASE_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values`;
 
 // ============================================================
@@ -1814,9 +1814,15 @@ async function writeToSheet(sheetName, rows) {
 }
 
 async function uploadInvoice(base64, filename, mimeType) {
-  const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'uploadFile', filename, mimeType, base64:base64.split(',')[1]}) });
+  const res = await fetch(SCRIPT_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'text/plain'},
+    body: JSON.stringify({ action: 'uploadFile', filename, mimeType, base64: base64.split(',')[1] })
+  });
   const data = await res.json();
-  return data.url || '';
+  if(data.error) throw new Error(data.error);
+  if(!data.url) throw new Error('No URL returned from Drive');
+  return data.url;
 }
 
 // ============================================================
