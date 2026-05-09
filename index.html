@@ -192,6 +192,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   <button class="nav-tab" onclick="showPage('groups')"><span class="tab-icon">👥</span>Groups</button>
   <button class="nav-tab" onclick="showPage('search')"><span class="tab-icon">🔍</span>Search</button>
   <button class="nav-tab" onclick="showPage('recurring')"><span class="tab-icon">🔁</span>Recurring</button>
+  <button class="nav-tab" onclick="showPage('settings')"><span class="tab-icon">⚙️</span>Settings</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -296,6 +297,25 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
       <button class="pill" onclick="setSplitType('personal', this)">👤 Personal</button>
     </div>
     <div id="splitRows"></div>
+  </div>
+
+  <!-- RECURRING CHECKBOX -->
+  <div class="card" id="recurringCheckCard">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:13px;font-weight:700">🔁 Mark as Recurring</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">Remind me to log this every month</div>
+      </div>
+      <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer">
+        <input type="checkbox" id="addIsRecurring" onchange="toggleRecurringDay(this)" style="opacity:0;width:0;height:0">
+        <span style="position:absolute;inset:0;background:var(--border);border-radius:12px;transition:0.3s" id="recurringToggleBg"></span>
+        <span style="position:absolute;top:2px;left:2px;width:20px;height:20px;background:white;border-radius:50%;transition:0.3s;box-shadow:0 1px 4px rgba(0,0,0,0.2)" id="recurringToggleDot"></span>
+      </label>
+    </div>
+    <div id="recurringDayRow" style="display:none;margin-top:10px">
+      <label class="form-label">Remind me on day</label>
+      <input type="number" class="form-input" id="addRecurringDay" value="1" min="1" max="31" inputmode="numeric" placeholder="Day of month (e.g. 25)">
+    </div>
   </div>
 
   <!-- INVOICE UPLOAD -->
@@ -447,11 +467,45 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 <!-- ===== RECURRING PAGE ===== -->
 <div class="page" id="page-recurring">
   <div id="recurringDueBanner"></div>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
     <div class="section-title" style="margin:0">Recurring Expenses</div>
     <button class="btn btn-primary btn-sm" onclick="openAddRecurringModal()" style="width:auto;padding:8px 14px">➕ Add</button>
   </div>
-  <div id="recurringList"><div class="loading"><div class="spinner"></div></div></div>
+  <div class="pills" id="recurringGroupFilter" style="margin-bottom:10px">
+    <button class="pill active" onclick="setRecurringGroup('all',this)">All</button>
+  </div>
+  <div id="recurringList"><div class="empty"><div class="empty-icon">🔁</div><div>No recurring expenses yet</div></div></div>
+</div>
+
+<!-- ===== SETTINGS PAGE ===== -->
+<div class="page" id="page-settings">
+  <div class="section-title">Reminder Settings</div>
+  <div class="card">
+    <div style="font-size:13px;font-weight:700;margin-bottom:6px">🔔 Global Reminder Day</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Show recurring reminders from this day each month. Individual items can override this.</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <input type="number" class="form-input" id="settingReminderDay" min="1" max="31" placeholder="24" style="width:100px" inputmode="numeric">
+      <span style="font-size:13px;color:var(--text2)">of each month</span>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px">Currently: day <span id="currentReminderDay">24</span> — reminders appear from the <span id="currentReminderDay2">24</span>th onwards</div>
+    <button class="btn btn-primary" onclick="saveSettings()" style="margin-top:12px">💾 Save Settings</button>
+  </div>
+
+  <div class="section-title" style="margin-top:14px">App Info</div>
+  <div class="card">
+    <div style="font-size:12px;color:var(--text2);line-height:1.8">
+      <div>📊 Google Sheet: OWH Expenses</div>
+      <div>👥 Groups: <span id="settingGroupCount">—</span></div>
+      <div>💳 Transactions loaded: <span id="settingExpCount">—</span></div>
+      <div>🔁 Recurring items: <span id="settingRecCount">—</span></div>
+    </div>
+  </div>
+
+  <div class="section-title" style="margin-top:14px">Danger Zone</div>
+  <div class="card">
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px">Force reload all data from Google Sheet</div>
+    <button class="btn btn-outline" onclick="loadAllData()" style="width:100%;justify-content:center">🔄 Reload All Data</button>
+  </div>
 </div>
 
 <!-- ===== ADD RECURRING MODAL ===== -->
@@ -472,10 +526,11 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
         <input type="number" class="form-input" id="recAmount" placeholder="0" inputmode="decimal">
       </div>
       <div class="form-group">
-        <label class="form-label">Day of month</label>
-        <input type="number" class="form-input" id="recDay" placeholder="e.g. 1" min="1" max="31" inputmode="numeric">
+        <label class="form-label">Alert day (optional)</label>
+        <input type="number" class="form-input" id="recDay" placeholder="default: 24" min="1" max="31" inputmode="numeric">
       </div>
     </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:-6px;margin-bottom:10px">Leave blank to use global reminder day (day <span id="recGlobalDay">24</span>)</div>
     <div class="form-group">
       <label class="form-label">Group</label>
       <select class="form-select" id="recGroup"></select>
@@ -702,7 +757,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="spinner"></div>
         <span id="loadingMsg">Connecting to Google Sheet...</span>
       </div>`;
-    loadAllData();
+    loadSettings();
+  loadAllData();
   } catch(err) {
     document.getElementById('homeContent').innerHTML = '<div style="padding:20px;color:red">JS Error: ' + err.message + '<br>' + err.stack + '</div>';
   }
@@ -1480,18 +1536,28 @@ function updateStats() {
       const trend = lastVal > prevVal*1.1 ? '📈' : lastVal < prevVal*0.9 ? '📉' : '➡️';
 
       const sparkline = vals.map((v,i) => {
-        const h = Math.max((v/maxVal*30),1).toFixed(0);
-        return `<div style="flex:1;background:${i===5?'var(--primary)':'var(--accent)'};height:${h}px;border-radius:2px 2px 0 0;opacity:${i===5?1:0.6}"></div>`;
+        const h = Math.max((v/maxVal*40),1).toFixed(0);
+        const label = v > 0 ? (v>=1000 ? Math.round(v/1000)+'k' : Math.round(v)) : '';
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+          <div style="font-size:8px;color:${i===5?'var(--primary)':'var(--text3)'};font-weight:${i===5?'700':'400'};min-height:12px">${label}</div>
+          <div style="width:100%;background:${i===5?'var(--primary)':'var(--accent)'};height:${h}px;border-radius:2px 2px 0 0;opacity:${i===5?1:0.5}"></div>
+        </div>`;
       }).join('');
+
+      const avgVal = vals.slice(0,-1).reduce((s,v)=>s+v,0)/Math.max(vals.slice(0,-1).filter(v=>v>0).length,1);
 
       return `<div style="padding:10px 0;${top6Cats.indexOf(cat)>0?'border-top:1px solid var(--border)':''}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <span style="font-size:12px;font-weight:700">${getCatIcon(cat)} ${cat}</span>
-          <span style="font-size:12px">${trend} <strong>${Math.round(lastVal).toLocaleString()}</strong> EGP</span>
+          <div style="text-align:right">
+            <div style="font-size:13px;font-weight:900;color:var(--primary)">${Math.round(lastVal).toLocaleString()} EGP ${trend}</div>
+            <div style="font-size:10px;color:var(--text3)">avg: ${Math.round(avgVal).toLocaleString()} EGP</div>
+          </div>
         </div>
-        <div style="display:flex;gap:3px;align-items:flex-end;height:32px">${sparkline}</div>
-        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);margin-top:3px">
-          <span>${trendMonths[0].substring(5)}</span><span>${trendMonths[5].substring(5)}</span>
+        <div style="display:flex;gap:3px;align-items:flex-end;height:52px">${sparkline}</div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);margin-top:2px">
+          <span>${new Date(trendMonths[0]+'-01').toLocaleDateString('en-GB',{month:'short'})}</span>
+          <span>${new Date(trendMonths[5]+'-01').toLocaleDateString('en-GB',{month:'short'})}</span>
         </div>
       </div>`;
     }).join('');
@@ -1623,6 +1689,15 @@ function updateSplitRows() {
 }
 
 function autoFillSplit() { if(splitType==='equal') updateSplitRows(); }
+
+function toggleRecurringDay(checkbox) {
+  const dayRow = document.getElementById('recurringDayRow');
+  const bg = document.getElementById('recurringToggleBg');
+  const dot = document.getElementById('recurringToggleDot');
+  if(dayRow) dayRow.style.display = checkbox.checked ? 'block' : 'none';
+  if(bg) bg.style.background = checkbox.checked ? 'var(--primary)' : 'var(--border)';
+  if(dot) dot.style.transform = checkbox.checked ? 'translateX(20px)' : 'translateX(0)';
+}
 
 // Default exchange rates (user can override)
 const DEFAULT_RATES = { EGP: 1, USD: 50, EUR: 54, GBP: 63, SAR: 13.3, AED: 13.6 };
@@ -1785,6 +1860,18 @@ async function saveEntry() {
     allExpenses.unshift({ id, group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl,
       shares:{ Sarah: shares['Sarah']||0, Khaled: shares['Khaled']||0, OWH: shares['OWH']||0 }, loggedBy });
 
+    // Save as recurring if checkbox checked
+    const isRecurring = document.getElementById('addIsRecurring')?.checked;
+    if(isRecurring) {
+      const recurDay = parseInt(document.getElementById('addRecurringDay')?.value||1);
+      const paidBy = currentGroupMembers.find(m => (parseFloat(document.getElementById('paid_'+m)?.value||0)) > 0) || currentGroupMembers[0];
+      const recId = generateId();
+      const recRow = [recId, desc, amount, recurDay, group, category, paidBy, splitType, notes];
+      await writeToSheet('Recurring', [recRow]);
+      allRecurring.push({ id:recId, description:desc, amount, day:recurDay, group, category, paidBy, split:splitType, notes });
+      showToast('✅ Saved + added to recurring!');
+    }
+
     if(window.editingExpenseId) {
       // Delete old row from sheet by ID, then the new row was already appended above
       await fetch(SCRIPT_URL, {
@@ -1804,6 +1891,8 @@ async function saveEntry() {
     document.getElementById('addNotes').value = '';
     document.getElementById('uploadPreview').innerHTML = '';
     if(document.getElementById('addCurrency')) document.getElementById('addCurrency').value = 'EGP';
+    const recCheck = document.getElementById('addIsRecurring');
+    if(recCheck && recCheck.checked) { recCheck.checked=false; toggleRecurringDay(recCheck); }
     if(document.getElementById('addExchangeRate')) document.getElementById('addExchangeRate').value = '';
     if(document.getElementById('exchangeRateRow')) document.getElementById('exchangeRateRow').style.display = 'none';
     if(document.getElementById('currencyPreview')) document.getElementById('currencyPreview').style.display = 'none';
@@ -2153,19 +2242,21 @@ let allRecurring = []; // loaded from Recurring sheet
 
 async function loadRecurring() {
   try {
-    const rows = await fetchSheet('Recurring!A2:H100');
+    const rows = await fetchSheet('Recurring!A2:I200');
     allRecurring = rows.filter(r=>r[0]).map(r => ({
       id: r[0], description: r[1], amount: parseFloat(r[2]||0),
       day: parseInt(r[3]||1), group: r[4], category: r[5],
       paidBy: r[6], split: r[7]||'equal', notes: r[8]||''
     }));
-    renderRecurringPage();
-    checkRecurringDue();
   } catch(e) {
-    console.error('Recurring load error:', e);
+    // Sheet may not exist yet — that's ok
     allRecurring = [];
   }
+  renderRecurringPage();
+  checkRecurringDue();
 }
+
+let recurringGroupFilter = 'all';
 
 function renderRecurringPage() {
   // Populate group select in modal
@@ -2174,35 +2265,93 @@ function renderRecurringPage() {
     allGroups.forEach(g => grpSel.innerHTML += `<option value="${g.name}">${g.name}</option>`);
   }
 
+  // Build group filter pills
+  const filterEl = document.getElementById('recurringGroupFilter');
+  if(filterEl && filterEl.children.length <= 1) {
+    allGroups.forEach(g => {
+      filterEl.innerHTML += `<button class="pill" onclick="setRecurringGroup('${g.name}',this)">${g.name}</button>`;
+    });
+  }
+
   const container = document.getElementById('recurringList');
   if(!container) return;
 
-  if(allRecurring.length === 0) {
-    container.innerHTML = `<div class="empty"><div class="empty-icon">🔁</div><div>No recurring expenses yet</div><div style="font-size:11px;color:var(--text3);margin-top:4px">Add salaries, subscriptions, or any monthly fixed costs</div></div>`;
-    return;
-  }
-
   const now = new Date();
   const curMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const globalDay = appSettings.reminderDay || 24;
 
-  container.innerHTML = allRecurring.map(r => {
-    const logged = isLoggedThisMonth(r, curMonth);
-    return `<div class="card" style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div style="flex:1">
-          <div style="font-size:14px;font-weight:900">${r.description}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px">${r.group} • Day ${r.day} of month • ${r.category}</div>
-          <div style="font-size:11px;color:var(--text3)">Paid by ${r.paidBy} • ${r.split} split</div>
+  // Filter by group
+  const filtered = recurringGroupFilter === 'all'
+    ? allRecurring
+    : allRecurring.filter(r => r.group === recurringGroupFilter);
+
+  // Suggestions section
+  const suggestions = getRecurringSuggestions();
+  let html = '';
+
+  if(suggestions.length > 0) {
+    html += `<div class="section-title">💡 Suggested Recurring</div>`;
+    html += suggestions.map(s => `
+      <div style="background:#f0f7ff;border:1px solid var(--accent);border-radius:12px;padding:12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:700">${s.description}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${s.group} • seen ${s.count}x in last 4 months • avg ${Math.round(s.avgAmount).toLocaleString()} EGP</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;margin-right:4px">
+            <button class="btn btn-sm btn-success" onclick="addSuggestion('${encodeURIComponent(JSON.stringify(s))}')">✅ Add</button>
+            <button class="btn btn-sm btn-outline" onclick="dismissSuggestion('${s.key}')">✕</button>
+          </div>
         </div>
-        <div style="text-align:right;flex-shrink:0;margin-right:8px">
-          <div style="font-size:15px;font-weight:900;color:var(--primary)">${r.amount.toLocaleString()} EGP</div>
-          <div style="font-size:10px;margin-top:2px;color:${logged?'var(--ok)':'var(--warn)'};font-weight:700">${logged?'✅ Logged':'⏳ Due'}</div>
-        </div>
-        <button class="btn btn-danger-soft btn-sm" onclick="deleteRecurring('${r.id}')" style="padding:4px 8px">🗑️</button>
-      </div>
-      ${!logged ? `<button class="btn btn-primary" onclick="logRecurring('${r.id}')" style="margin-top:10px;padding:9px">📝 Log this month</button>` : ''}
-    </div>`;
-  }).join('');
+      </div>`).join('');
+    html += `<div class="section-title" style="margin-top:12px">Your Recurring Expenses</div>`;
+  }
+
+  if(filtered.length === 0) {
+    html += `<div class="empty"><div class="empty-icon">🔁</div><div>No recurring expenses yet</div><div style="font-size:11px;color:var(--text3);margin-top:4px">Add salaries, subscriptions, or any monthly fixed costs</div></div>`;
+  } else {
+    // Group by group name
+    const byGroup = {};
+    filtered.forEach(r => { if(!byGroup[r.group]) byGroup[r.group]=[]; byGroup[r.group].push(r); });
+
+    Object.entries(byGroup).forEach(([grpName, items]) => {
+      if(recurringGroupFilter === 'all') html += `<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin:10px 0 6px">${grpName}</div>`;
+      items.forEach(r => {
+        const logged = isLoggedThisMonth(r, curMonth);
+        const alertDay = (r.day && r.day > 0) ? r.day : globalDay;
+        const isDue = new Date().getDate() >= alertDay && !logged;
+        html += `<div class="card" style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div style="flex:1">
+              <div style="font-size:14px;font-weight:900">${r.description}</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">${r.group} • ${r.category}</div>
+              <div style="font-size:11px;color:var(--text3)">Paid by ${r.paidBy} • ${r.split} split • Alert: day ${alertDay}${r.day>0?' (custom)':' (default)'}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;margin-left:8px">
+              <div style="font-size:15px;font-weight:900;color:var(--primary)">${r.amount.toLocaleString()} EGP</div>
+              <div style="font-size:10px;margin-top:2px;color:${logged?'var(--ok)':isDue?'var(--warn)':'var(--text3)'};font-weight:700">
+                ${logged?'✅ Logged this month':isDue?'⏳ Due':'🕐 Not due yet'}
+              </div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr auto auto;gap:6px;margin-top:10px">
+            ${!logged?`<button class="btn btn-primary" onclick="logRecurring('${r.id}')" style="padding:8px;font-size:12px">📝 Log this month</button>`:'<div></div>'}
+            <button class="btn btn-outline btn-sm" onclick="editRecurring('${r.id}')">✏️</button>
+            <button class="btn btn-danger-soft btn-sm" onclick="deleteRecurring('${r.id}')">🗑️</button>
+          </div>
+        </div>`;
+      });
+    });
+  }
+
+  container.innerHTML = html;
+}
+
+function setRecurringGroup(group, btn) {
+  recurringGroupFilter = group;
+  document.querySelectorAll('#recurringGroupFilter .pill').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  renderRecurringPage();
 }
 
 function isLoggedThisMonth(recurring, curMonth) {
@@ -2217,8 +2366,15 @@ function isLoggedThisMonth(recurring, curMonth) {
 
 function checkRecurringDue() {
   const now = new Date();
+  const today = now.getDate();
   const curMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  const due = allRecurring.filter(r => !isLoggedThisMonth(r, curMonth));
+  const globalReminderDay = appSettings.reminderDay || 24;
+  const due = allRecurring.filter(r => {
+    if(isLoggedThisMonth(r, curMonth)) return false;
+    // Use per-item day if set (>0), otherwise fall back to global reminder day
+    const alertDay = (r.day && r.day > 0) ? r.day : globalReminderDay;
+    return today >= alertDay;
+  });
   const banner = document.getElementById('recurringDueBanner');
 
   if(due.length === 0 || !banner) return;
@@ -2266,6 +2422,84 @@ function logRecurring(id) {
   }, 100);
 }
 
+function getRecurringSuggestions() {
+  // Find descriptions appearing in 2+ different months in last 4 months
+  const dismissed = appSettings.dismissedSuggestions || [];
+  const monthCounts = {}; // key -> { months: Set, amounts: [], group, description }
+
+  allExpenses.forEach(e => {
+    if(e.type !== 'expense' || !e.date) return;
+    const month = e.date.substring(0,7);
+    const key = `${e.group}|${(e.description||'').toLowerCase().trim()}`;
+    if(!monthCounts[key]) monthCounts[key] = { months: new Set(), amounts: [], group: e.group, description: e.description, category: e.category };
+    monthCounts[key].months.add(month);
+    monthCounts[key].amounts.push(e.amount);
+  });
+
+  // Already marked as recurring
+  const alreadyRecurring = new Set(allRecurring.map(r => `${r.group}|${r.description.toLowerCase().trim()}`));
+
+  return Object.entries(monthCounts)
+    .filter(([key, data]) =>
+      data.months.size >= 2 &&
+      !alreadyRecurring.has(key) &&
+      !dismissed.includes(key)
+    )
+    .map(([key, data]) => ({
+      key,
+      description: data.description,
+      group: data.group,
+      category: data.category,
+      count: data.months.size,
+      avgAmount: data.amounts.reduce((s,v)=>s+v,0)/data.amounts.length
+    }))
+    .sort((a,b) => b.count - a.count)
+    .slice(0, 5);
+}
+
+function dismissSuggestion(key) {
+  if(!appSettings.dismissedSuggestions) appSettings.dismissedSuggestions = [];
+  appSettings.dismissedSuggestions.push(key);
+  localStorage.setItem('weShareSettings', JSON.stringify(appSettings));
+  renderRecurringPage();
+  showToast('Suggestion dismissed');
+}
+
+function addSuggestion(encodedData) {
+  try {
+    const s = JSON.parse(decodeURIComponent(encodedData));
+    // Pre-fill the add recurring modal
+    document.getElementById('recDesc').value = s.description;
+    document.getElementById('recAmount').value = Math.round(s.avgAmount);
+    document.getElementById('recDay').value = '';
+    const grpSel = document.getElementById('recGroup');
+    if(grpSel) grpSel.value = s.group;
+    const catSel = document.getElementById('recCategory');
+    if(catSel && s.category) catSel.value = s.category;
+    openAddRecurringModal();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+function editRecurring(id) {
+  const r = allRecurring.find(x=>x.id===id);
+  if(!r) return;
+  document.getElementById('recDesc').value = r.description;
+  document.getElementById('recAmount').value = r.amount;
+  document.getElementById('recDay').value = r.day || '';
+  const grpSel = document.getElementById('recGroup');
+  if(grpSel) { grpSel.innerHTML=''; allGroups.forEach(g=>grpSel.innerHTML+=`<option value="${g.name}">${g.name}</option>`); grpSel.value=r.group; }
+  const catSel = document.getElementById('recCategory');
+  if(catSel) catSel.value = r.category;
+  const paidSel = document.getElementById('recPaidBy');
+  if(paidSel) paidSel.value = r.paidBy;
+  const splitSel = document.getElementById('recSplit');
+  if(splitSel) splitSel.value = r.split;
+  document.getElementById('recNotes').value = r.notes || '';
+  // Store editing ID
+  window.editingRecurringId = id;
+  openAddRecurringModal();
+}
+
 async function deleteRecurring(id) {
   if(!confirm('Remove this recurring expense?')) return;
   try {
@@ -2285,17 +2519,20 @@ function openAddRecurringModal() {
     grpSel.innerHTML = '';
     allGroups.forEach(g => grpSel.innerHTML += `<option value="${g.name}">${g.name}</option>`);
   }
+  const globalDayEl = document.getElementById('recGlobalDay');
+  if(globalDayEl) globalDayEl.textContent = appSettings.reminderDay || 24;
   document.getElementById('addRecurringModal').classList.add('open');
 }
 
 function closeAddRecurringModal() {
   document.getElementById('addRecurringModal').classList.remove('open');
+  window.editingRecurringId = null;
 }
 
 async function saveRecurring() {
   const desc = document.getElementById('recDesc').value.trim();
   const amount = parseFloat(document.getElementById('recAmount').value||0);
-  const day = parseInt(document.getElementById('recDay').value||1);
+  const day = parseInt(document.getElementById('recDay').value||0); // 0 = use global default
   const group = document.getElementById('recGroup').value;
   const category = document.getElementById('recCategory').value;
   const paidBy = document.getElementById('recPaidBy').value;
@@ -2305,17 +2542,26 @@ async function saveRecurring() {
   if(!desc) { showToast('⚠️ Enter description'); return; }
   if(!group) { showToast('⚠️ Select group'); return; }
 
+  showToast('⏳ Saving...');
+
+  if(window.editingRecurringId) {
+    // Delete old, add new
+    await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({ action:'deleteById', sheet:'Recurring', id: window.editingRecurringId }) });
+    allRecurring = allRecurring.filter(r=>r.id!==window.editingRecurringId);
+    window.editingRecurringId = null;
+  }
+
   const id = generateId();
   const row = [id, desc, amount, day, group, category, paidBy, split, notes];
 
   try {
-    showToast('⏳ Saving...');
     await writeToSheet('Recurring', [row]);
     allRecurring.push({ id, description:desc, amount, day, group, category, paidBy, split, notes });
     closeAddRecurringModal();
     renderRecurringPage();
     checkRecurringDue();
-    showToast('✅ Recurring expense added!');
+    showToast('✅ Recurring expense saved!');
   } catch(e) { showToast('❌ Error: ' + e.message); }
 }
 
@@ -2328,10 +2574,11 @@ function showPage(name) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
-  const tabs = ['home','add','expenses','stats','groups','search','recurring'];
+  const tabs = ['home','add','expenses','stats','groups','search','recurring','settings'];
   document.querySelectorAll('.nav-tab')[tabs.indexOf(name)]?.classList.add('active');
   if(name==='add') setTimeout(() => renderCatGrid(document.getElementById('addCategory').value || 'Groceries'), 50);
   if(name==='search') initSearch();
+  if(name==='settings') initSettingsPage();
 }
 
 // ============================================================
@@ -2376,12 +2623,36 @@ function clearSearch() {
   runSearch();
 }
 
-function runSearch() {
+async function runSearch() {
   const query = (document.getElementById('searchQuery').value||'').toLowerCase().trim();
   const from = document.getElementById('searchFrom').value;
   const to = document.getElementById('searchTo').value;
 
-  let results = [...allExpenses];
+  // Check if requested range is outside loaded data
+  const loadedFrom = allExpenses.length > 0 ? allExpenses[allExpenses.length-1].date : '';
+  const needsMoreData = from && loadedFrom && from < loadedFrom;
+
+  let searchPool = allExpenses;
+
+  if(needsMoreData) {
+    // Fetch the requested range from sheet
+    const countEl = document.getElementById('searchCount');
+    if(countEl) countEl.textContent = '⏳ Fetching data...';
+    try {
+      const eRows = await fetchSheet('Expenses!A2:N6000');
+      searchPool = eRows.filter(r=>r[0]&&r[0]!=='DELETED').map(r => ({
+        id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
+        category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
+        type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
+        shares:{ Sarah:parseFloat(r[10]||0), Khaled:parseFloat(r[11]||0), OWH:parseFloat(r[12]||0) },
+        loggedBy:r[13]||''
+      }));
+    } catch(e) {
+      searchPool = allExpenses;
+    }
+  }
+
+  let results = [...searchPool];
 
   // Filter by group
   if(searchGroupFilter !== 'all') results = results.filter(e => e.group === searchGroupFilter);
@@ -2390,7 +2661,7 @@ function runSearch() {
   if(from) results = results.filter(e => e.date >= from);
   if(to) results = results.filter(e => e.date <= to);
 
-  // Filter by query — search description, category, amount, logged by
+  // Filter by query
   if(query) {
     results = results.filter(e =>
       (e.description||'').toLowerCase().includes(query) ||
@@ -2406,7 +2677,7 @@ function runSearch() {
 
   // Update count
   const countEl = document.getElementById('searchCount');
-  if(countEl) countEl.textContent = `${results.length} transaction${results.length!==1?'s':''} found`;
+  if(countEl) countEl.textContent = `${results.length} transaction${results.length!==1?'s':''} found${needsMoreData?' (full history)':''}`;
 
   // Render results
   const container = document.getElementById('searchResults');
@@ -2455,6 +2726,46 @@ function selectStatsMonth(m, btn) {
 }
 
 document.getElementById('addAmount')?.addEventListener('input', updateSplitRows);
+
+// ============================================================
+// SETTINGS
+// ============================================================
+let appSettings = { reminderDay: 24, dismissedSuggestions: [] };
+
+function loadSettings() {
+  const saved = localStorage.getItem('weShareSettings');
+  if(saved) { try { appSettings = {...appSettings, ...JSON.parse(saved)}; } catch(e){} }
+  const el = document.getElementById('settingReminderDay');
+  if(el) el.value = appSettings.reminderDay;
+}
+
+function saveSettings() {
+  const day = parseInt(document.getElementById('settingReminderDay')?.value||24);
+  appSettings.reminderDay = day;
+  localStorage.setItem('weShareSettings', JSON.stringify(appSettings));
+  const d1 = document.getElementById('currentReminderDay');
+  const d2 = document.getElementById('currentReminderDay2');
+  if(d1) d1.textContent = day;
+  if(d2) d2.textContent = day;
+  showToast('✅ Settings saved! Reminders will show from day ' + day);
+  checkRecurringDue();
+}
+
+function initSettingsPage() {
+  loadSettings();
+  const el = document.getElementById('settingReminderDay');
+  if(el) el.value = appSettings.reminderDay;
+  const d1 = document.getElementById('currentReminderDay');
+  const d2 = document.getElementById('currentReminderDay2');
+  if(d1) d1.textContent = appSettings.reminderDay;
+  if(d2) d2.textContent = appSettings.reminderDay;
+  const gc = document.getElementById('settingGroupCount');
+  const ec = document.getElementById('settingExpCount');
+  const rc = document.getElementById('settingRecCount');
+  if(gc) gc.textContent = allGroups.length;
+  if(ec) ec.textContent = allExpenses.length.toLocaleString();
+  if(rc) rc.textContent = allRecurring.length;
+}
 
 function setPreset(months) {
   const to = new Date();
