@@ -171,7 +171,6 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 /* IMPORT BANNER */
 .import-banner { background: linear-gradient(135deg, #e8f0ff, #f0e8ff); border: 1px solid #b8c9d9; border-radius: var(--radius); padding: 14px; margin-bottom: 14px; text-align: center; }
 </style>
-  <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgdmlld0JveD0iMCAwIDE4MCAxODAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGRlZnM+CiAgICA8Y2xpcFBhdGggaWQ9ImljIj48cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgcng9IjM4Ii8+PC9jbGlwUGF0aD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxODAiIHJ4PSIzOCIgZmlsbD0iI2Y5ZjBmMCIvPgogIDxnIGNsaXAtcGF0aD0idXJsKCNpYykiIG9wYWNpdHk9IjAuMDciPgogICAgPHBvbHlnb24gcG9pbnRzPSI5MCwyMiAxNTUsNzAgMjUsNzAiIGZpbGw9IiMxYTFhMWEiLz4KICAgIDxyZWN0IHg9IjM4IiB5PSI3MCIgd2lkdGg9IjEwNCIgaGVpZ2h0PSI4MCIgZmlsbD0iIzFhMWExYSIvPgogICAgPHJlY3QgeD0iNjgiIHk9Ijk4IiB3aWR0aD0iNDQiIGhlaWdodD0iNTIiIGZpbGw9IiNmOWYwZjAiIHJ4PSIyMiIvPgogIDwvZz4KICA8dGV4dCB4PSI5MCIgeT0iMTEyIiBmb250LWZhbWlseT0iR2VvcmdpYSxzZXJpZiIgZm9udC1zaXplPSIxMzAiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iIzFhMWExYSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSI+VzwvdGV4dD4KICA8cmVjdCB4PSIzOCIgeT0iMTQyIiB3aWR0aD0iMTA0IiBoZWlnaHQ9IjMuNSIgcng9IjEuNzUiIGZpbGw9IiNjYzVmNWYiIG9wYWNpdHk9IjAuOCIvPgogIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDE0MywyNikiPgogICAgPHBvbHlnb24gcG9pbnRzPSIwLC05IDIuMSwtMy4zIDgsLTIuOCAzLjYsMS43IDUsNy40IDAsNC41IC01LDcuNCAtMy42LDEuNyAtOCwtMi44IC0yLjEsLTMuMyIgZmlsbD0iI2NjNWY1ZiIvPgogIDwvZz4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxNTgsMzcpIj4KICAgIDxwb2x5Z29uIHBvaW50cz0iMCwtNiAxLjQsLTIuMiA1LjcsLTEuOSAyLjYsMS4xIDMuNSw1LjIgMCwzIC0zLjUsNS4yIC0yLjYsMS4xIC01LjcsLTEuOSAtMS40LC0yLjIiIGZpbGw9IiNjYzVmNWYiIG9wYWNpdHk9IjAuNTUiLz4KICA8L2c+Cjwvc3ZnPg==">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="WeShare">
@@ -837,6 +836,8 @@ document.addEventListener('DOMContentLoaded', () => {
         <span id="loadingMsg">Connecting to Google Sheet...</span>
       </div>`;
     loadSettings();
+  generateAppIcon();
+
   // Hide splash after data loads
   loadAllData().then(() => {
     const splash = document.getElementById('splashScreen');
@@ -2686,6 +2687,106 @@ async function saveRecurring() {
     checkRecurringDue();
     showToast('✅ Recurring expense saved!');
   } catch(e) { showToast('❌ Error: ' + e.message); }
+}
+
+// ============================================================
+// APP ICON GENERATOR (PNG for iPhone home screen)
+// ============================================================
+function generateAppIcon() {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 180;
+    canvas.height = 180;
+    const ctx = canvas.getContext('2d');
+
+    // Rounded rect helper
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x+r, y);
+      ctx.lineTo(x+w-r, y);
+      ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+      ctx.lineTo(x+w, y+h-r);
+      ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+      ctx.lineTo(x+r, y+h);
+      ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+      ctx.lineTo(x, y+r);
+      ctx.quadraticCurveTo(x, y, x+r, y);
+      ctx.closePath();
+    }
+
+    // Clip to rounded rect
+    roundRect(0, 0, 180, 180, 38);
+    ctx.clip();
+
+    // Background — blush pink
+    ctx.fillStyle = '#f9f0f0';
+    ctx.fillRect(0, 0, 180, 180);
+
+    // Ghost house
+    ctx.globalAlpha = 0.07;
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.moveTo(90, 22); ctx.lineTo(155, 70); ctx.lineTo(25, 70);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(38, 70, 104, 80);
+    ctx.globalAlpha = 0.07;
+    ctx.fillStyle = '#f9f0f0';
+    ctx.beginPath();
+    ctx.arc(90, 124, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Big italic W
+    ctx.font = 'italic 700 118px Georgia, serif';
+    ctx.fillStyle = '#1a1a1a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('W', 90, 105);
+
+    // Red underline
+    ctx.fillStyle = '#cc5f5f';
+    ctx.globalAlpha = 0.8;
+    roundRect(38, 140, 104, 3.5, 1.75);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Star 1 (bigger)
+    drawStar(ctx, 143, 26, 5, 9, 4, '#cc5f5f', 1);
+    // Star 2 (smaller, faded)
+    drawStar(ctx, 158, 37, 5, 6, 2.5, '#cc5f5f', 0.55);
+
+    // Set as apple touch icon
+    const png = canvas.toDataURL('image/png');
+    let link = document.querySelector("link[rel='apple-touch-icon']");
+    if(!link) {
+      link = document.createElement('link');
+      link.rel = 'apple-touch-icon';
+      document.head.appendChild(link);
+    }
+    link.href = png;
+  } catch(e) {
+    console.log('Icon generation failed:', e);
+  }
+}
+
+function drawStar(ctx, cx, cy, spikes, outerR, innerR, color, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  let rot = (Math.PI / 2) * 3;
+  const step = Math.PI / spikes;
+  ctx.moveTo(cx, cy - outerR);
+  for(let i=0; i<spikes; i++) {
+    ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+    rot += step;
+  }
+  ctx.lineTo(cx, cy - outerR);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
 }
 
 // ============================================================
