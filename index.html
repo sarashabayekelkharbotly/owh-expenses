@@ -675,6 +675,21 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   </div>
 </div>
 
+<!-- ===== TREND DRILLDOWN MODAL ===== -->
+<div class="modal-overlay" id="drilldownModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div>
+        <div class="modal-title" id="drilldownTitle">Transactions</div>
+        <div style="font-size:11px;color:var(--text3)" id="drilldownSubtitle"></div>
+      </div>
+      <button onclick="closeDrilldown()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
+    </div>
+    <div id="drilldownContent"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
 <!-- ===== DATE RANGE MODAL ===== -->
 <div class="modal-overlay" id="dateRangeModal">
   <div class="modal" style="max-height:auto">
@@ -1444,7 +1459,7 @@ function updateStats() {
   const catTotals12 = {};
   months12.forEach(m=>Object.entries(m.byCat).forEach(([c,v])=>{ catTotals12[c]=(catTotals12[c]||0)+v; }));
   const top5Cats = Object.entries(catTotals12).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([c])=>c);
-  const catColors = ['#cc5f5f','#b8c9d9','#5caa7f','#e8a838','#7b6fd4','#f4a261','#888'];
+  const catColors = ['#A32D2D','#185FA5','#EF9F27','#534AB7','#D85A30','#1D9E75','#B4B2A9'];
   const maxTrend = Math.max(...months12.map(m=>m.total),1);
   const BAR_H = 120;
 
@@ -1460,7 +1475,11 @@ function updateStats() {
     if(otherVal>0) segments.push({cat:'Other',color:catColors[5],val:otherVal});
     const segsHTML = segments.filter(s=>s.val>0).map(s=>{
       const h = Math.max((s.val/maxTrend*BAR_H),1).toFixed(1);
-      return `<div title="${s.cat}: ${Math.round(s.val).toLocaleString()} EGP" style="width:100%;height:${h}px;background:${s.color}"></div>`;
+      const mStr2 = `${my}-${String(mm).padStart(2,'0')}`;
+      return `<div title="${s.cat}: ${Math.round(s.val).toLocaleString()} EGP"
+        onclick="openDrilldown('${mStr2}','${s.cat}')"
+        style="width:100%;height:${h}px;background:${s.color};cursor:pointer;transition:opacity 0.1s"
+        onmouseover="this.style.opacity=0.75" onmouseout="this.style.opacity=1"></div>`;
     }).join('');
     return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
       <div style="font-size:8px;color:${m.isCurrent?'var(--primary)':'var(--text3)'};font-weight:${m.isCurrent?'700':'400'}">${m.total>0?Math.round(m.total/1000).toFixed(0)+'k':''}</div>
@@ -2336,6 +2355,72 @@ async function updateMonthlyTotalsForMonth(month, group) {
 }
 
 // ============================================================
+// TREND DRILLDOWN
+// ============================================================
+let drilldownCache = {}; // cache fetched month data
+
+async function openDrilldown(monthStr, category) {
+  document.getElementById('drilldownTitle').textContent = `${category} — ${new Date(monthStr+'-01').toLocaleDateString('en-GB',{month:'long',year:'numeric'})}`;
+  document.getElementById('drilldownSubtitle').textContent = 'Loading transactions...';
+  document.getElementById('drilldownContent').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  document.getElementById('drilldownModal').classList.add('open');
+
+  try {
+    // Check if we already have this month's data loaded
+    let monthExps = allExpenses.filter(e => e.date && e.date.startsWith(monthStr));
+
+    // If not in allExpenses, fetch from sheet
+    if(monthExps.length === 0) {
+      if(drilldownCache[monthStr]) {
+        monthExps = drilldownCache[monthStr];
+      } else {
+        document.getElementById('drilldownSubtitle').textContent = 'Fetching from sheet...';
+        const eRows = await fetchSheet('Expenses!A2:N6000');
+        const allRows = eRows.filter(r=>r[0]&&r[0]!=='DELETED').map(r => ({
+          id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
+          category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
+          type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
+          shares:{ Sarah:parseFloat(r[10]||0), Khaled:parseFloat(r[11]||0), OWH:parseFloat(r[12]||0) },
+          loggedBy:r[13]||''
+        }));
+        monthExps = allRows.filter(e => e.date && e.date.startsWith(monthStr));
+        drilldownCache[monthStr] = monthExps;
+      }
+    }
+
+    // Filter by category
+    const catExps = monthExps.filter(e =>
+      e.type === 'expense' &&
+      (e.category === category || (category === 'Other' && !['Music','Services','Groceries','Gifts','Maintenance','Electricity'].includes(e.category)))
+    ).sort((a,b) => b.amount - a.amount);
+
+    const total = catExps.reduce((s,e) => s+e.amount, 0);
+    document.getElementById('drilldownSubtitle').textContent = `${catExps.length} transaction${catExps.length!==1?'s':''} · ${Math.round(total).toLocaleString()} EGP total`;
+
+    if(catExps.length === 0) {
+      document.getElementById('drilldownContent').innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div>No transactions found</div></div>';
+      return;
+    }
+
+    document.getElementById('drilldownContent').innerHTML = catExps.map((e,i) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;${i>0?'border-top:1px solid var(--border)':''}">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.description}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${e.group}${e.loggedBy?' · by '+e.loggedBy:''} · ${e.date}</div>
+        </div>
+        <div style="font-size:13px;font-weight:700;color:var(--primary);flex-shrink:0;margin-left:12px">${Math.round(e.amount).toLocaleString()} EGP</div>
+      </div>`).join('');
+
+  } catch(err) {
+    document.getElementById('drilldownContent').innerHTML = `<div style="color:var(--danger);padding:12px;text-align:center">❌ Error: ${err.message}</div>`;
+  }
+}
+
+function closeDrilldown() {
+  document.getElementById('drilldownModal').classList.remove('open');
+}
+
+// ============================================================
 // SHEET WRITE / UPLOAD
 // ============================================================
 async function writeToSheet(sheetName, rows) {
@@ -3114,7 +3199,7 @@ function setPresetYear(yearsAgo) {
   document.getElementById('drTo').value = `${year}-12-31`;
 }
 
-['expenseModal','settleModal','addGroupModal','dateRangeModal','addRecurringModal'].forEach(id => {
+['expenseModal','settleModal','addGroupModal','dateRangeModal','addRecurringModal','drilldownModal'].forEach(id => {
   const el = document.getElementById(id);
   if(el) el.addEventListener('click', function(e) { if(e.target===this) this.classList.remove('open'); });
 });
