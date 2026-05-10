@@ -1453,7 +1453,7 @@ function updateStats() {
       const live = allExpenses.filter(e=>e.date&&e.date.startsWith(mStr)&&e.type==='expense'&&(statsGroupFilter==='all'||e.group===statsGroupFilter));
       live.forEach(e=>{ mTotal+=e.amount; byCat[e.category||'Other']=(byCat[e.category||'Other']||0)+e.amount; allCatsInPeriod.add(e.category||'Other'); });
     }
-    months12.push({ label:d.toLocaleDateString('en-GB',{month:'short'}), total:mTotal, byCat, isCurrent:i===0 });
+    months12.push({ label:d.toLocaleDateString('en-GB',{month:'short'}), total:mTotal, byCat, isCurrent:i===0, mStr });
   }
 
   const catTotals12 = {};
@@ -1473,13 +1473,13 @@ function updateStats() {
     const segments = top5Cats.map((cat,i)=>({cat,color:catColors[i],val:m.byCat[cat]||0}));
     const otherVal = m.total - segments.reduce((s,sg)=>s+sg.val,0);
     if(otherVal>0) segments.push({cat:'Other',color:catColors[5],val:otherVal});
+    const mStrDrill = m.mStr;
     const segsHTML = segments.filter(s=>s.val>0).map(s=>{
       const h = Math.max((s.val/maxTrend*BAR_H),1).toFixed(1);
-      const mStr2 = `${my}-${String(mm).padStart(2,'0')}`;
-      return `<div title="${s.cat}: ${Math.round(s.val).toLocaleString()} EGP"
-        onclick="openDrilldown('${mStr2}','${s.cat}')"
+      return `<div data-month="${mStrDrill}" data-cat="${s.cat}"
         style="width:100%;height:${h}px;background:${s.color};cursor:pointer;transition:opacity 0.1s"
-        onmouseover="this.style.opacity=0.75" onmouseout="this.style.opacity=1"></div>`;
+        onmouseover="this.style.opacity=0.75" onmouseout="this.style.opacity=1"
+        onclick="openDrilldown(this.dataset.month,this.dataset.cat)"></div>`;
     }).join('');
     return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
       <div style="font-size:8px;color:${m.isCurrent?'var(--primary)':'var(--text3)'};font-weight:${m.isCurrent?'700':'400'}">${m.total>0?Math.round(m.total/1000).toFixed(0)+'k':''}</div>
