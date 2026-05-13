@@ -762,7 +762,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 // ============================================================
 const SHEET_ID = '1RnoTVR0o1UMkjme3iPeC0XziA28vqTVw2Ij-arsQlbc';
 const API_KEY  = 'AIzaSyCHqfBKYYE2qpjmNlzgposZrHtVchEpAmo';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxPMl1HQiSeLLmLsiOheD-s64tqSAoJPgW0lO31kVa_ZsrCGqIqg39h-yXcU_ydcvdQdQ/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxrBmyBC9FQgVBvscTgw-kdRd_oH44QKqoFLdwkwoHx86ew7JhWFWYjsDuFpHOsd_vX0g/exec';
 const BASE_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values`;
 
 // ============================================================
@@ -2820,26 +2820,22 @@ async function saveRecurring() {
 // ============================================================
 // TELEGRAM NOTIFICATIONS
 // ============================================================
-const TELEGRAM_BOT_TOKEN = '8589752517:AAE0H7FgnNZFY-GNRDtsX1ILZtR6HGl9CKU';
-const TELEGRAM_CHAT_IDS = { Sarah: '8657440374', Khaled: '8606311586' };
+// Telegram notifications are handled server-side via Apps Script
 
 async function sendTelegram(message) {
   const myName = appSettings.myName || '';
-  // Send to everyone except the person who triggered it
-  const recipients = Object.entries(TELEGRAM_CHAT_IDS)
-    .filter(([name]) => name !== myName)
-    .map(([, chatId]) => chatId);
-
-  for(const chatId of recipients) {
-    try {
-      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' })
-      });
-    } catch(e) {
-      console.log('Telegram error:', e);
-    }
+  try {
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({
+        action: 'sendTelegram',
+        message,
+        senderName: myName
+      })
+    });
+  } catch(e) {
+    console.log('Telegram error:', e);
   }
 }
 
