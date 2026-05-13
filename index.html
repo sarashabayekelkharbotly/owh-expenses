@@ -2875,11 +2875,9 @@ ${Math.round(amount).toLocaleString()} EGP · ${group}`;
 function sendRecurringReminderNotification(dueItems) {
   const myName = appSettings.myName || '';
   if(!myName || dueItems.length === 0) return;
-  const list = dueItems.map(r => `• ${r.description} (${r.group})`).join('
-');
-  const msg = `🔁 <b>Recurring reminder</b>
-${dueItems.length} item${dueItems.length>1?'s':''} not yet logged this month:
-${list}`;
+  const list = dueItems.map(r => '- ' + r.description + ' (' + r.group + ')').join('\n');
+  const count = dueItems.length;
+  const msg = String.fromCodePoint(0x1F501) + ' <b>Recurring reminder</b>\n' + count + ' item' + (count>1?'s':'') + ' not yet logged:\n' + list;
   sendTelegram(msg);
 }
 
