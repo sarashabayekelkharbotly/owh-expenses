@@ -1987,7 +1987,16 @@ async function saveEntry() {
     catch(e) { showToast('⚠️ Invoice upload failed, saving without it'); }
   }
 
-  const shares = entryType==='payment' ? {} : calcShares();
+  let shares = entryType==='payment' ? {} : calcShares();
+  if(entryType === 'income') {
+    const incomeShares = {};
+    currentGroupMembers.forEach(m => {
+      const received = parseFloat(document.getElementById('paid_' + m)?.value || 0);
+      incomeShares[m] = received > 0 ? -received : 0;
+    });
+    incomeShares['OWH'] = amount;
+    shares = incomeShares;
+  }
   const id = generateId();
   const personalTag = shares['_personal'] ? `[Personal: ${shares['_personal']}]` : '';
   const notesWithPersonal = [notes, personalTag, currencyNote].filter(Boolean).join(' ');
