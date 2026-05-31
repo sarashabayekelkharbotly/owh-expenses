@@ -1292,7 +1292,7 @@ async function saveEntry() {
 }
 
 // ============================================================
-// SETTLE MODAL — FIX 2: Route all payments through OWH for groups with OWH
+// SETTLE MODAL
 // ============================================================
 function openSettleModal(groupId) {
   const group = allGroups.find(g=>g.id===groupId);
@@ -1303,9 +1303,6 @@ function openSettleModal(groupId) {
   const debtors = Object.entries(bal).filter(([,v])=>v<-0.5).sort((a,b)=>a[1]-b[1]);
   const creditors = Object.entries(bal).filter(([,v])=>v>0.5).sort((a,b)=>b[1]-a[1]);
   let credBal = creditors.map(([m,v])=>({m,v}));
-  // FIX 2: If OWH is a member, route all payments through OWH only
-  const hasOWH = group.members.includes('OWH');
-  if(hasOWH) credBal = credBal.filter(c => c.m === 'OWH');
   debtors.forEach(([debtor, debt]) => {
     let remaining = Math.abs(debt);
     credBal.forEach(cred => {
