@@ -1046,7 +1046,7 @@ async function loadAllData() {
       cutoff.setMonth(cutoff.getMonth() - 4);
       const cutoffStr = cutoff.toISOString().split('T')[0];
 
-      const eRows = await fetchSheet('Expenses!A2:L6000');
+      const eRows = await fetchSheet('Expenses!A2:N6000');
       totalRowsInSheet = eRows.length;
 
       allExpenses = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
