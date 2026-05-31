@@ -1163,7 +1163,22 @@ function updateGroupMembers() {
 
 function updatePaidByRows() {
   const container = document.getElementById('paidByRows'); if(!container) return;
-  if(entryType === 'payment') { container.innerHTML = '<div style="font-size:12px;color:var(--text3)">Enter payment details in description field</div>'; return; }
+  if(entryType === 'payment') {
+    container.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Who Paid (Sender)</label>
+        <select class="form-select" id="settlementFrom">
+          ${currentGroupMembers.map(m=>`<option value="${m}">${m}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group" style="margin-top:10px">
+        <label class="form-label">Who Received (Recipient)</label>
+        <select class="form-select" id="settlementTo">
+          ${currentGroupMembers.map(m=>`<option value="${m}">${m}</option>`).join('')}
+        </select>
+      </div>`;
+    return;
+  }
   container.innerHTML = currentGroupMembers.map(m => `<div class="split-member-row"><div class="split-member-name">${m}</div><input type="number" class="split-input" id="paid_${m}" placeholder="0" inputmode="decimal" onchange="autoFillSplit()"></div>`).join('');
 }
 
@@ -1244,7 +1259,17 @@ async function saveEntry() {
   showToast('⏳ Saving...');
   let invoiceUrl = '';
   if(selectedFileBase64) { try { invoiceUrl = await uploadInvoice(selectedFileBase64, selectedFile.name, selectedFile.type); } catch(e) { showToast('⚠️ Invoice upload failed, saving without it'); } }
-  let shares = entryType==='payment' ? {} : calcShares();
+  let shares = {};
+  if(entryType === 'payment') {
+    const from = document.getElementById('settlementFrom')?.value;
+    const to = document.getElementById('settlementTo')?.value;
+    if(from && to && from !== to) {
+      shares[from] = -amount; // sender loses money (paid out)
+      shares[to] = amount;    // recipient gains money (is owed less / balance improves)
+    }
+  } else {
+    shares = calcShares();
+  }
   if(entryType === 'income') {
     const incomeShares = {};
     currentGroupMembers.forEach(m => { const received = parseFloat(document.getElementById('paid_' + m)?.value || 0); incomeShares[m] = received > 0 ? -received : 0; });
@@ -1315,8 +1340,19 @@ function openSettleModal(groupId) {
   let html = `<div style="font-size:14px;font-weight:900;margin-bottom:12px">${group.name}</div>`;
   if(settlements.length===0) { html += `<div style="text-align:center;color:var(--ok);font-weight:700;padding:20px">✅ All settled!</div>`; }
   else {
-    settlements.forEach(s => { html += `<div style="background:#fff3e0;border-radius:10px;padding:12px;margin-bottom:8px"><div style="font-size:14px;font-weight:700">${s.from} → ${s.to}</div><div style="font-size:18px;font-weight:900;color:var(--warn);margin-top:4px">${Math.round(s.amount).toLocaleString()} EGP</div></div>`; });
-    html += `<button class="btn btn-primary" style="margin-top:8px" onclick="recordSettlement('${groupId}')">✅ Record Settlement</button>`;
+    html += `<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Amounts are pre-filled — edit if settling partially</div>`;
+    settlements.forEach((s, i) => {
+      html += `<div style="background:#fff3e0;border-radius:10px;padding:12px;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px">${s.from} → ${s.to}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="number" id="settleAmount_${i}" value="${Math.round(s.amount)}" 
+            style="flex:1;padding:8px 12px;border:1.5px solid #e8a838;border-radius:8px;font-family:Cairo,sans-serif;font-size:16px;font-weight:900;color:#e8a838;background:white;outline:none;text-align:center"
+            inputmode="numeric">
+          <span style="font-size:13px;font-weight:700;color:var(--text2)">EGP</span>
+        </div>
+      </div>`;
+    });
+    html += `<button class="btn btn-primary" style="margin-top:8px" onclick="recordSettlement('${groupId}', ${JSON.stringify(settlements).replace(/"/g, '&quot;')})">✅ Record Settlement</button>`;
   }
   document.getElementById('settleContent').innerHTML = html;
   document.getElementById('settleModal').classList.add('open');
@@ -1324,20 +1360,20 @@ function openSettleModal(groupId) {
 
 function closeSettleModal() { document.getElementById('settleModal').classList.remove('open'); }
 
-async function recordSettlement(groupId) {
+async function recordSettlement(groupId, settlements) {
   const group = allGroups.find(g=>g.id===groupId); if(!group) return;
-  const balances = calcGroupBalances(group);
   const date = new Date().toISOString().split('T')[0];
   const rows = [];
-  const bal = {...balances};
-  const debtors = Object.entries(bal).filter(([,v])=>v<-0.5);
-  const creditors = Object.entries(bal).filter(([,v])=>v>0.5).map(([m,v])=>({m,v}));
-  debtors.forEach(([debtor, debt]) => {
-    creditors.forEach(cred => {
-      const amount = Math.min(Math.abs(debt), cred.v); if(amount < 0.5) return;
-      const shares = {}; shares[debtor] = amount; shares[cred.m] = -amount;
-      rows.push([generateId(), group.name, date, `Settlement: ${debtor} → ${cred.m}`, 'Payment', amount, 'EGP', 'payment', 'Monthly settlement', '', JSON.stringify(shares), 'System']);
-    });
+  // Use custom amounts from editable fields if available
+  const finalSettlements = settlements ? settlements.map((s, i) => {
+    const inputEl = document.getElementById('settleAmount_' + i);
+    const customAmount = inputEl ? parseFloat(inputEl.value) : s.amount;
+    return { ...s, amount: customAmount > 0 ? customAmount : s.amount };
+  }) : [];
+  finalSettlements.forEach(s => {
+    if(s.amount < 0.5) return;
+    const shares = {}; shares[s.from] = -s.amount; shares[s.to] = s.amount;
+    rows.push([generateId(), group.name, date, `Settlement: ${s.from} → ${s.to}`, 'Payment', s.amount, 'EGP', 'payment', 'Monthly settlement', '', JSON.stringify(shares), 'System']);
   });
   if(!rows.length) { showToast('Nothing to settle'); return; }
   try {
