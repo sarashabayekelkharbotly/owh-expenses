@@ -1340,19 +1340,20 @@ function openSettleModal(groupId) {
   let html = `<div style="font-size:14px;font-weight:900;margin-bottom:12px">${group.name}</div>`;
   if(settlements.length===0) { html += `<div style="text-align:center;color:var(--ok);font-weight:700;padding:20px">✅ All settled!</div>`; }
   else {
-    html += `<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Amounts are pre-filled — edit if settling partially</div>`;
+    html += `<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Amounts are pre-filled — edit if settling partially. Record each separately.</div>`;
     settlements.forEach((s, i) => {
+      const sData = JSON.stringify(s).replace(/"/g, '&quot;');
       html += `<div style="background:#fff3e0;border-radius:10px;padding:12px;margin-bottom:8px">
         <div style="font-size:14px;font-weight:700;margin-bottom:8px">${s.from} → ${s.to}</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <input type="number" id="settleAmount_${i}" value="${Math.round(s.amount)}" 
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <input type="number" id="settleAmount_${i}" value="${Math.round(s.amount)}"
             style="flex:1;padding:8px 12px;border:1.5px solid #e8a838;border-radius:8px;font-family:Cairo,sans-serif;font-size:16px;font-weight:900;color:#e8a838;background:white;outline:none;text-align:center"
             inputmode="numeric">
           <span style="font-size:13px;font-weight:700;color:var(--text2)">EGP</span>
         </div>
+        <button class="btn btn-primary" style="padding:8px 14px;font-size:12px" onclick="recordSingleSettlement('${groupId}', '${s.from}', '${s.to}', ${i})">✅ Record</button>
       </div>`;
     });
-    html += `<button class="btn btn-primary" style="margin-top:8px" onclick="recordSettlement('${groupId}', ${JSON.stringify(settlements).replace(/"/g, '&quot;')})">✅ Record Settlement</button>`;
   }
   document.getElementById('settleContent').innerHTML = html;
   document.getElementById('settleModal').classList.add('open');
@@ -1360,19 +1361,36 @@ function openSettleModal(groupId) {
 
 function closeSettleModal() { document.getElementById('settleModal').classList.remove('open'); }
 
+async function recordSingleSettlement(groupId, from, to, idx) {
+  const group = allGroups.find(g=>g.id===groupId); if(!group) return;
+  const inputEl = document.getElementById('settleAmount_' + idx);
+  const amount = inputEl ? parseFloat(inputEl.value) : 0;
+  if(!amount || amount < 0.5) { showToast('⚠️ Enter a valid amount'); return; }
+  const date = new Date().toISOString().split('T')[0];
+  const rows = [];
+  const sarahShare  = from==='Sarah'  ? amount : to==='Sarah'  ? -amount : 0;
+  const khaledShare = from==='Khaled' ? amount : to==='Khaled' ? -amount : 0;
+  const owhShare    = from==='OWH'    ? amount : to==='OWH'    ? -amount : 0;
+  rows.push([generateId(), group.name, date, `Settlement: ${from} → ${to}`, 'Payment', amount, 'EGP', 'payment', 'Monthly settlement', '', sarahShare, khaledShare, owhShare, 'System']);
+  try {
+    showToast('⏳ Recording...');
+    await writeToSheet('Expenses', rows);
+    rows.forEach(r => allExpenses.unshift({id:r[0],group:r[1],date:r[2],description:r[3],category:r[4],amount:r[5],currency:'EGP',type:'payment',notes:r[8],invoiceUrl:'',shares:{Sarah:r[10],Khaled:r[11],OWH:r[12]},loggedBy:r[13]}));
+    // Mark this settlement as recorded in the UI
+    const btn = document.querySelector(`button[onclick*="recordSingleSettlement('${groupId}', '${from}', '${to}', ${idx})"]`);
+    if(btn) { btn.textContent = '✅ Recorded'; btn.disabled = true; btn.style.background = 'var(--ok)'; }
+    renderHome(); renderGroupsPage();
+    showToast('✅ Settlement recorded!');
+  } catch(e) { showToast('❌ Error: ' + e.message); }
+}
+
 async function recordSettlement(groupId, settlements) {
   const group = allGroups.find(g=>g.id===groupId); if(!group) return;
   const date = new Date().toISOString().split('T')[0];
   const rows = [];
-  // Use custom amounts from editable fields if available
-  const finalSettlements = settlements ? settlements.map((s, i) => {
-    const inputEl = document.getElementById('settleAmount_' + i);
-    const customAmount = inputEl ? parseFloat(inputEl.value) : s.amount;
-    return { ...s, amount: customAmount > 0 ? customAmount : s.amount };
-  }) : [];
+  const finalSettlements = settlements || [];
   finalSettlements.forEach(s => {
     if(s.amount < 0.5) return;
-    // Store shares as separate columns (Sarah, Khaled, OWH) to match SUMIF formulas
     const sarahShare  = s.from==='Sarah'  ? s.amount : s.to==='Sarah'  ? -s.amount : 0;
     const khaledShare = s.from==='Khaled' ? s.amount : s.to==='Khaled' ? -s.amount : 0;
     const owhShare    = s.from==='OWH'    ? s.amount : s.to==='OWH'    ? -s.amount : 0;
