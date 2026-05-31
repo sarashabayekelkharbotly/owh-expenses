@@ -1264,8 +1264,8 @@ async function saveEntry() {
     const from = document.getElementById('settlementFrom')?.value;
     const to = document.getElementById('settlementTo')?.value;
     if(from && to && from !== to) {
-      shares[from] = -amount; // sender loses money (paid out)
-      shares[to] = amount;    // recipient gains money (is owed less / balance improves)
+      shares[from] = amount;  // sender's balance improves (they owe less)
+      shares[to] = -amount;   // recipient's balance decreases (they are owed less)
     }
   } else {
     shares = calcShares();
@@ -1372,7 +1372,7 @@ async function recordSettlement(groupId, settlements) {
   }) : [];
   finalSettlements.forEach(s => {
     if(s.amount < 0.5) return;
-    const shares = {}; shares[s.from] = -s.amount; shares[s.to] = s.amount;
+    const shares = {}; shares[s.from] = s.amount; shares[s.to] = -s.amount;
     rows.push([generateId(), group.name, date, `Settlement: ${s.from} → ${s.to}`, 'Payment', s.amount, 'EGP', 'payment', 'Monthly settlement', '', JSON.stringify(shares), 'System']);
   });
   if(!rows.length) { showToast('Nothing to settle'); return; }
