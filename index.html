@@ -801,6 +801,37 @@ function renderHome() {
     <button onclick="openDateRangeModal()" style="background:var(--primary);border:none;color:white;font-weight:700;cursor:pointer;font-family:Cairo,sans-serif;font-size:10px;padding:3px 8px;border-radius:6px">Change</button>
   </div>`;
   html += `<div id="homeDueBanner"></div>`;
+  // Calculate consolidated totals across all groups
+  const totals = {};
+  allGroups.forEach(g => {
+    const balances = calcGroupBalances(g);
+    Object.entries(balances).forEach(([member, bal]) => {
+      totals[member] = (totals[member] || 0) + bal;
+    });
+  });
+
+  // Render summary card
+  html += `<div class="section-title">Overall Summary</div>`;
+  html += `<div class="card" style="margin-bottom:14px">`;
+  const members = [...new Set(allGroups.flatMap(g => g.members))];
+  members.forEach(member => {
+    const total = totals[member] || 0;
+    if(Math.abs(total) < 0.5) {
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:700">${member}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--ok)">✅ Settled</div>
+      </div>`;
+    } else {
+      const cls = total > 0 ? 'var(--ok)' : 'var(--danger)';
+      const label = total > 0 ? 'is owed' : 'owes';
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:700">${member} <span style="font-weight:400;color:var(--text3)">${label}</span></div>
+        <div style="font-size:14px;font-weight:900;color:${cls}">${Math.abs(Math.round(total)).toLocaleString()} EGP</div>
+      </div>`;
+    }
+  });
+  html += `</div>`;
+
   html += `<div class="section-title">Current Balances</div>`;
   allGroups.forEach(g => {
     const balances = calcGroupBalances(g);
