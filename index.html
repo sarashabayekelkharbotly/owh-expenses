@@ -1372,8 +1372,11 @@ async function recordSettlement(groupId, settlements) {
   }) : [];
   finalSettlements.forEach(s => {
     if(s.amount < 0.5) return;
-    const shares = {}; shares[s.from] = s.amount; shares[s.to] = -s.amount;
-    rows.push([generateId(), group.name, date, `Settlement: ${s.from} → ${s.to}`, 'Payment', s.amount, 'EGP', 'payment', 'Monthly settlement', '', JSON.stringify(shares), 'System']);
+    // Store shares as separate columns (Sarah, Khaled, OWH) to match SUMIF formulas
+    const sarahShare  = s.from==='Sarah'  ? s.amount : s.to==='Sarah'  ? -s.amount : 0;
+    const khaledShare = s.from==='Khaled' ? s.amount : s.to==='Khaled' ? -s.amount : 0;
+    const owhShare    = s.from==='OWH'    ? s.amount : s.to==='OWH'    ? -s.amount : 0;
+    rows.push([generateId(), group.name, date, `Settlement: ${s.from} → ${s.to}`, 'Payment', s.amount, 'EGP', 'payment', 'Monthly settlement', '', sarahShare, khaledShare, owhShare, 'System']);
   });
   if(!rows.length) { showToast('Nothing to settle'); return; }
   try {
