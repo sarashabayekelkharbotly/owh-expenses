@@ -782,6 +782,7 @@ async function loadAllData() {
 
     renderHome(); renderGroupsPage(); renderExpensesPage(); renderStatsPage();
     populateGroupSelect(); populateGroupFilters();
+    await loadRecurring();
     showToast('✅ Updated');
   } catch(e) {
     showToast('❌ Error: ' + e.message);
