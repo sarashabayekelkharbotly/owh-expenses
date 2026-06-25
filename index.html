@@ -133,7 +133,52 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   <meta name="theme-color" content="#f9f0f0">
 </head>
 <body>
-<div id="splashScreen" style="position:fixed;inset:0;z-index:9999;background:#f9f0f0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Cairo',sans-serif;transition:opacity 0.5s ease;">
+
+<!-- ============================================================
+     APP LOCK — covers entire page until auth completes
+     ============================================================ -->
+<div id="appLock" style="position:fixed;inset:0;background:#f9f0f0;z-index:9998;display:block;"></div>
+
+<!-- ============================================================
+     LOGIN SCREEN
+     ============================================================ -->
+<div id="loginScreen" style="position:fixed;inset:0;background:#f9f0f0;z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Cairo',sans-serif;padding:24px;box-sizing:border-box;">
+  <div style="margin-bottom:12px">
+    <svg width="80" height="80" viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 4px 16px rgba(204,95,95,0.18))">
+      <defs><clipPath id="lic"><rect width="180" height="180" rx="38"/></clipPath></defs>
+      <rect width="180" height="180" rx="38" fill="white"/>
+      <g clip-path="url(#lic)" opacity="0.06">
+        <polygon points="90,22 155,70 25,70" fill="#1a1a1a"/>
+        <rect x="38" y="70" width="104" height="80" fill="#1a1a1a"/>
+        <rect x="68" y="98" width="44" height="52" fill="white" rx="22"/>
+      </g>
+      <text x="90" y="112" font-family="Georgia,serif" font-size="130" font-style="italic" font-weight="700" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">W</text>
+      <rect x="38" y="142" width="104" height="3.5" rx="1.75" fill="#cc5f5f" opacity="0.8"/>
+      <g transform="translate(143,26)"><polygon points="0,-9 2.1,-3.3 8,-2.8 3.6,1.7 5,7.4 0,4.5 -5,7.4 -3.6,1.7 -8,-2.8 -2.1,-3.3" fill="#cc5f5f"/></g>
+      <g transform="translate(158,37)"><polygon points="0,-6 1.4,-2.2 5.7,-1.9 2.6,1.1 3.5,5.2 0,3 -3.5,5.2 -2.6,1.1 -5.7,-1.9 -1.4,-2.2" fill="#cc5f5f" opacity="0.55"/></g>
+    </svg>
+  </div>
+  <div style="font-size:22px;font-weight:700;color:#cc5f5f;letter-spacing:0.5px;margin-bottom:4px;">Our Welcome Home</div>
+  <div style="font-size:11px;font-weight:600;color:#999;letter-spacing:3px;text-transform:uppercase;margin-bottom:32px;">WeShare</div>
+  <div style="background:#fff;border-radius:16px;padding:28px 24px;width:100%;max-width:340px;box-shadow:0 4px 24px rgba(204,95,95,0.10);box-sizing:border-box;">
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:12px;font-weight:600;color:#999;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">اسم المستخدم</label>
+      <input id="loginUsername" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="username"
+        onkeydown="if(event.key==='Enter')document.getElementById('loginPassword').focus()"
+        style="width:100%;padding:12px 14px;border:1.5px solid #e8d8d8;border-radius:10px;font-family:'Cairo',sans-serif;font-size:15px;color:#333;background:#fdfafa;box-sizing:border-box;outline:none;transition:border-color .2s;">
+    </div>
+    <div style="margin-bottom:20px;">
+      <label style="display:block;font-size:12px;font-weight:600;color:#999;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">كلمة المرور</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••"
+        onkeydown="if(event.key==='Enter')doLogin()"
+        style="width:100%;padding:12px 14px;border:1.5px solid #e8d8d8;border-radius:10px;font-family:'Cairo',sans-serif;font-size:15px;color:#333;background:#fdfafa;box-sizing:border-box;outline:none;transition:border-color .2s;">
+    </div>
+    <div id="loginError" style="display:none;background:#fff0f0;color:#cc5f5f;font-size:13px;font-weight:600;text-align:center;padding:10px 14px;border-radius:8px;margin-bottom:16px;border:1px solid #f0d0d0;"></div>
+    <button id="loginBtn" onclick="doLogin()" style="width:100%;padding:14px;background:#cc5f5f;color:#fff;border:none;border-radius:10px;font-family:'Cairo',sans-serif;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:1px;transition:background .2s,opacity .2s;">دخول</button>
+  </div>
+</div>
+
+<div id="splashScreen" style="position:fixed;inset:0;z-index:9999;background:#f9f0f0;display:none;flex-direction:column;align-items:center;justify-content:center;font-family:'Cairo',sans-serif;transition:opacity 0.5s ease;">
   <div style="position:relative;margin-bottom:28px">
     <svg width="130" height="130" viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 8px 24px rgba(0,0,0,0.1))">
       <defs><clipPath id="sic"><rect width="180" height="180" rx="38"/></clipPath></defs>
@@ -170,6 +215,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   <div style="display:flex;gap:6px;align-items:center">
     <button class="sync-btn" onclick="loadAllData()" title="Reload data" style="font-size:18px">↻</button>
     <button class="sync-btn" onclick="showPage('settings')" title="Settings" style="font-size:18px">⚙️</button>
+    <button class="sync-btn" onclick="showSwitchUser()" title="Switch user" style="font-size:18px">👤</button>
   </div>
 </div>
 
@@ -413,6 +459,16 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 </div>
 
 <div class="page" id="page-settings">
+  <div class="section-title">Account</div>
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:13px;font-weight:700">👤 Logged in as</div>
+        <div id="settingsUserDisplay" style="font-size:15px;font-weight:900;color:var(--primary);margin-top:2px">—</div>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="showSwitchUser()">Switch User</button>
+    </div>
+  </div>
   <div class="section-title">Reminder Settings</div>
   <div class="card">
     <div style="font-size:13px;font-weight:700;margin-bottom:6px">👤 My Name</div>
@@ -647,7 +703,28 @@ const DEFAULT_GROUPS = [
   { id: 'g3', name: 'Monthly Expense', members: ['Sarah', 'Khaled'], color: '#5caa7f' },
 ];
 
-document.addEventListener('DOMContentLoaded', () => {
+// ── onAuthReady: called after successful login ──────────────────
+let currentUser = null;
+
+function onAuthReady(session) {
+  currentUser = session;
+
+  // Show splash while data loads
+  const splash = document.getElementById('splashScreen');
+  if(splash) { splash.style.display = 'flex'; }
+
+  // Pre-fill "Logged by" with the session display name
+  const lb = document.getElementById('addLoggedBy');
+  if(lb && session.displayName) {
+    for(const opt of lb.options) {
+      if(opt.value === session.displayName) { lb.value = session.displayName; break; }
+    }
+  }
+
+  // Update settings page user display
+  const ud = document.getElementById('settingsUserDisplay');
+  if(ud) ud.textContent = session.displayName + (session.role === 'admin' ? ' (admin)' : '');
+
   try {
     document.getElementById('headerDate').textContent = new Date().toLocaleDateString('en-GB', {day:'numeric',month:'short',year:'numeric'});
     document.getElementById('addDate').valueAsDate = new Date();
@@ -659,13 +736,95 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
     generateAppIcon();
     loadAllData().then(() => {
-      const splash = document.getElementById('splashScreen');
       if(splash) { splash.style.opacity = '0'; setTimeout(() => splash.style.display = 'none', 500); }
     });
   } catch(err) {
     document.getElementById('homeContent').innerHTML = '<div style="padding:20px;color:red">JS Error: ' + err.message + '</div>';
   }
-});
+}
+
+// ── Auth functions ───────────────────────────────────────────────
+(function(){
+  var AUTH_URL = 'https://script.google.com/macros/s/AKfycbwq4F1gpNoPr5Yn7BnqqWukuE9zJsbsEl2l9cXV1plM-tKvK154lOLRDGmilANAPBoqJg/exec';
+  var SESS_KEY = 'owh_session';
+
+  function getSession(){
+    try{ var r=localStorage.getItem(SESS_KEY); if(!r) return null; var s=JSON.parse(r); return (s&&s.username&&s.displayName)?s:null; }catch(e){return null;}
+  }
+  function saveSession(s){ localStorage.setItem(SESS_KEY,JSON.stringify(s)); }
+  function clearSession(){ localStorage.removeItem(SESS_KEY); }
+
+  function showErr(msg){ var e=document.getElementById('loginError'); e.textContent=msg; e.style.display='block'; }
+  function hideErr(){ var e=document.getElementById('loginError'); if(e) e.style.display='none'; }
+  function setLoading(on){
+    var b=document.getElementById('loginBtn');
+    b.disabled=on; b.style.opacity=on?'0.6':'1'; b.textContent=on?'...':'دخول';
+  }
+
+  window.initAuth = function(){
+    var s=getSession();
+    if(s){ hideLoginScreen(s); }
+    // else login screen already visible — focus username field
+    else { setTimeout(function(){ var u=document.getElementById('loginUsername'); if(u) u.focus(); },100); }
+  };
+
+  window.doLogin = async function(){
+    hideErr();
+    var u=document.getElementById('loginUsername').value.trim();
+    var p=document.getElementById('loginPassword').value;
+    if(!u||!p){ showErr('الرجاء إدخال اسم المستخدم وكلمة المرور'); return; }
+    setLoading(true);
+    try{
+      var res=await fetch(AUTH_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'auth_login',username:u,password:p})});
+      var data=await res.json();
+      if(data.ok){
+        var sess={username:data.username,displayName:data.displayName,role:data.role};
+        saveSession(sess);
+        hideLoginScreen(sess);
+      } else {
+        showErr(data.error||'اسم المستخدم أو كلمة المرور غير صحيحة');
+        document.getElementById('loginPassword').value='';
+        document.getElementById('loginPassword').focus();
+      }
+    }catch(e){ showErr('خطأ في الاتصال — تحقق من الإنترنت'); }
+    finally{ setLoading(false); }
+  };
+
+  function hideLoginScreen(sess){
+    var sc=document.getElementById('loginScreen');
+    var lk=document.getElementById('appLock');
+    sc.style.transition='opacity .35s ease';
+    sc.style.opacity='0';
+    setTimeout(function(){
+      sc.style.display='none';
+      lk.style.display='none';
+      if(typeof window.onAuthReady==='function') window.onAuthReady(sess);
+    },360);
+  }
+
+  window.showSwitchUser = function(){
+    clearSession();
+    document.getElementById('loginUsername').value='';
+    document.getElementById('loginPassword').value='';
+    hideErr();
+    var sc=document.getElementById('loginScreen');
+    var lk=document.getElementById('appLock');
+    sc.style.opacity='0';
+    sc.style.display='flex';
+    lk.style.display='block';
+    requestAnimationFrame(function(){ sc.style.transition='opacity .25s ease'; sc.style.opacity='1'; });
+    setTimeout(function(){ var u=document.getElementById('loginUsername'); if(u) u.focus(); },120);
+  };
+
+  ['loginUsername','loginPassword'].forEach(function(id){
+    var el=document.getElementById(id); if(!el) return;
+    el.addEventListener('focus',function(){ el.style.borderColor='#cc5f5f'; });
+    el.addEventListener('blur', function(){ el.style.borderColor='#e8d8d8'; });
+  });
+})();
+
+// ── Boot: start auth on DOM ready ────────────────────────────────
+document.addEventListener('DOMContentLoaded', initAuth);
 
 async function fetchSheet(range) {
   const url = `${BASE_URL}/${encodeURIComponent(range)}?key=${API_KEY}&valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
