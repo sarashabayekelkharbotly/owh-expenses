@@ -614,10 +614,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 </div>
 
 <script>
-const SHEET_ID = '1RnoTVR0o1UMkjme3iPeC0XziA28vqTVw2Ij-arsQlbc';
-const API_KEY  = 'AIzaSyCHqfBKYYE2qpjmNlzgposZrHtVchEpAmo';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxm8PY858JfFz3H3AsFfqrdk96oGcVstiCF7TnO1q_E16GbWGEh-UTChz_Cq1cmMTTejQ/exec';
-const BASE_URL = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values`;
 
 let allExpenses = [];
 let allGroups = [];
@@ -827,10 +824,17 @@ function onAuthReady(session) {
 document.addEventListener('DOMContentLoaded', initAuth);
 
 async function fetchSheet(range) {
-  const url = `${BASE_URL}/${encodeURIComponent(range)}?key=${API_KEY}&valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`;
-  const res = await fetch(url);
-  if(!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+  // Private-sheet read via Apps Script (script's own auth) instead of a
+  // public API key — same return shape as before ([[...], ...] rows),
+  // so loadAllData / loadDateRange / loadRecurring need no other changes.
+  const res = await fetch(SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: 'we_get_range', range })
+  });
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   const data = await res.json();
+  if (data && data.ok === false) throw new Error(data.error || 'we_get_range failed');
   return data.values || [];
 }
 
