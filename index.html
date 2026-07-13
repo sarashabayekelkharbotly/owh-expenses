@@ -824,18 +824,33 @@ function onAuthReady(session) {
 document.addEventListener('DOMContentLoaded', initAuth);
 
 async function fetchSheet(range) {
-  // Private-sheet read via Apps Script (script's own auth) instead of a
-  // public API key — same return shape as before ([[...], ...] rows),
-  // so loadAllData / loadDateRange / loadRecurring need no other changes.
-  const res = await fetch(SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ action: 'we_get_range', range })
-  });
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-  const data = await res.json();
-  if (data && data.ok === false) throw new Error(data.error || 'we_get_range failed');
-  return data.values || [];
+  return fetchSheetWithRetry(range, 1);
+}
+
+// Apps Script has "cold start" latency — the first call after a period of
+// inactivity can take much longer than usual, then subsequent calls are
+// fast. One silent retry with a longer timeout smooths this over instead
+// of surfacing a failure the user would just retry manually anyway.
+async function fetchSheetWithRetry(range, attemptsLeft, timeoutMs = 25000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'we_get_range', range }),
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+    const data = await res.json();
+    if (data && data.ok === false) throw new Error(data.error || 'we_get_range failed');
+    return data.values || [];
+  } catch (e) {
+    if (attemptsLeft > 0) return fetchSheetWithRetry(range, attemptsLeft - 1, timeoutMs);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function parseSheetDate(val) {
