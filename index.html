@@ -895,72 +895,90 @@ async function loadDateRange() {
 
 let allMonthlyTotals = [];
 
+// One batched load call, with the same cold-start retry as fetchSheet
+async function callBatched(attemptsLeft = 1, timeoutMs = 25000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'we_get_all' }), signal: controller.signal
+    });
+    if (!res.ok) throw new Error('we_get_all failed: ' + res.status);
+    return await res.json();
+  } catch (e) {
+    if (attemptsLeft > 0) return callBatched(attemptsLeft - 1, timeoutMs);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function loadAllData() {
   const setMsg = (msg) => {
     const el = document.getElementById('loadingMsg'); if(el) el.textContent = msg;
     const splash = document.getElementById('splashMsg'); if(splash) splash.textContent = msg;
   };
   try {
-    setMsg('Step 1/4: Loading categories...');
-    try { const catRows = await fetchSheet('Categories!A2:A100'); customCategories = catRows.filter(r=>r[0]).map(r=>r[0].trim()); } catch(e) { customCategories = []; }
+    setMsg('Loading...');
+    // ONE batched call for all 6 ranges instead of 6 sequential round-trips
+    const payload = await callBatched();
+    if (!payload || payload.ok !== true) throw new Error('we_get_all failed');
+    const D = payload.data || {};
 
-    setMsg('Step 2/4: Loading groups...');
-    try {
-      const gRows = await fetchSheet('Groups!A2:E20');
-      if(gRows.length > 0) {
-        allGroups = gRows.filter(r=>r[0]).map(r => ({ id: r[0], name: r[1], members: (r[2]||'').split(',').map(m=>m.trim()).filter(Boolean), color: r[3]||'#cc5f5f' }));
-      } else { allGroups = [...DEFAULT_GROUPS]; }
-    } catch(e) { allGroups = [...DEFAULT_GROUPS]; }
+    // Categories
+    customCategories = (D.categories || []).filter(r=>r[0]).map(r=>r[0].trim());
 
-    setMsg('Step 3/4: Loading monthly stats...');
-    try {
-      const gbRows = await fetchSheet('GroupBalances!A2:E50');
-      window.groupBalanceData = {};
-      gbRows.filter(r=>r[0]).forEach(r => {
-        const group = r[0];
-        if(!window.groupBalanceData[group]) window.groupBalanceData[group] = {};
-        window.groupBalanceData[group]['Sarah']  = parseFloat(r[1]||0);
-        window.groupBalanceData[group]['Khaled'] = parseFloat(r[2]||0);
-        window.groupBalanceData[group]['OWH']    = parseFloat(r[3]||0);
-      });
-    } catch(e) { window.groupBalanceData = {}; }
+    // Groups
+    const gRows = D.groups || [];
+    if(gRows.length > 0) {
+      allGroups = gRows.filter(r=>r[0]).map(r => ({ id: r[0], name: r[1], members: (r[2]||'').split(',').map(m=>m.trim()).filter(Boolean), color: r[3]||'#cc5f5f' }));
+    } else { allGroups = [...DEFAULT_GROUPS]; }
 
-    try {
-      const mtRows = await fetchSheet('MonthlyTotals!A2:I500');
-      allMonthlyTotals = mtRows.filter(r=>r[0]).map(r => ({
-        month: r[0]||'', group: r[1]||'',
-        totalExp: parseFloat(r[2]||0), totalInc: parseFloat(r[3]||0), count: parseInt(r[4]||0),
-        categories: tryParse(r[5]||'{}'), membersPaid: tryParse(r[6]||'{}'),
-        membersOwed: tryParse(r[7]||'{}'), incomeByApt: tryParse(r[8]||'{}'),
-      }));
-    } catch(e) { allMonthlyTotals = []; }
+    // Group balances
+    window.groupBalanceData = {};
+    (D.groupBalances || []).filter(r=>r[0]).forEach(r => {
+      const group = r[0];
+      if(!window.groupBalanceData[group]) window.groupBalanceData[group] = {};
+      window.groupBalanceData[group]['Sarah']  = parseFloat(r[1]||0);
+      window.groupBalanceData[group]['Khaled'] = parseFloat(r[2]||0);
+      window.groupBalanceData[group]['OWH']    = parseFloat(r[3]||0);
+    });
 
-    setMsg('Step 4/4: Loading recent transactions...');
-    try {
-      const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 4);
-      const cutoffStr = cutoff.toISOString().split('T')[0];
-      // FIX 1: Changed A2:L6000 to A2:N6000 to include OWH (col M) and LoggedBy (col N)
-      const eRows = await fetchSheet('Expenses!A2:N6000');
-      totalRowsInSheet = eRows.length;
-      allExpenses = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
-        id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
-        category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
-        type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
-        shares: (() => {
-          const s = { Sarah: parseFloat(r[10]||0), Khaled: parseFloat(r[11]||0), OWH: parseFloat(r[12]||0) };
-          const notes = r[8]||'';
-          const pm = notes.match(/\[Personal: ([^\]]+)\]/);
-          if(pm) s['_personal'] = pm[1];
-          return s;
-        })(),
-        loggedBy:r[13]||''
-      })).filter(e => e.date >= cutoffStr);
-      allExpenses.sort((a,b) => b.date.localeCompare(a.date));
-    } catch(e) { allExpenses = []; }
+    // Monthly totals
+    allMonthlyTotals = (D.monthlyTotals || []).filter(r=>r[0]).map(r => ({
+      month: r[0]||'', group: r[1]||'',
+      totalExp: parseFloat(r[2]||0), totalInc: parseFloat(r[3]||0), count: parseInt(r[4]||0),
+      categories: tryParse(r[5]||'{}'), membersPaid: tryParse(r[6]||'{}'),
+      membersOwed: tryParse(r[7]||'{}'), incomeByApt: tryParse(r[8]||'{}'),
+    }));
+
+    // Recent transactions (last 4 months)
+    const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 4);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const eRows = D.expenses || [];
+    totalRowsInSheet = eRows.length;
+    allExpenses = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
+      id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'',
+      category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP',
+      type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'',
+      shares: (() => {
+        const s = { Sarah: parseFloat(r[10]||0), Khaled: parseFloat(r[11]||0), OWH: parseFloat(r[12]||0) };
+        const notes = r[8]||'';
+        const pm = notes.match(/\[Personal: ([^\]]+)\]/);
+        if(pm) s['_personal'] = pm[1];
+        return s;
+      })(),
+      loggedBy:r[13]||''
+    })).filter(e => e.date >= cutoffStr);
+    allExpenses.sort((a,b) => b.date.localeCompare(a.date));
+
+    // Recurring (was a separate call; now part of the batch)
+    allRecurring = (D.recurring || []).filter(r=>r[0]).map(r => ({ id: r[0], description: r[1], amount: parseFloat(r[2]||0), day: parseInt(r[3]||0), group: r[4], category: r[5], paidBy: r[6], split: r[7]||'equal', notes: r[8]||'', endDate: r[9]||'' }));
 
     renderHome(); renderGroupsPage(); renderExpensesPage(); renderStatsPage();
     populateGroupSelect(); populateGroupFilters();
-    await loadRecurring();
+    renderRecurringPage(); checkRecurringDue();
     showToast('✅ Updated');
   } catch(e) {
     showToast('❌ Error: ' + e.message);
