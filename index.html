@@ -1260,7 +1260,8 @@ function updateStats() {
     if(otherVal>0) segments.push({cat:'Other',color:catColors[5],val:otherVal});
     const segsHTML = segments.filter(s=>s.val>0).map(s=>{
       const h = Math.max((s.val/maxTrend*BAR_H),1).toFixed(1);
-      return `<div data-month="${m.mStr}" data-cat="${s.cat}" style="width:100%;height:${h}px;background:${s.color};cursor:pointer;transition:opacity 0.1s" onmouseover="this.style.opacity=0.75" onmouseout="this.style.opacity=1" onclick="openDrilldown(this.dataset.month,this.dataset.cat)"></div>`;
+      const tip = `${s.cat}: ${Math.round(s.val).toLocaleString()} EGP — ${m.label}`;
+      return `<div data-month="${m.mStr}" data-cat="${s.cat}" title="${tip}" style="width:100%;height:${h}px;background:${s.color};cursor:pointer;transition:opacity 0.1s" onmouseover="this.style.opacity=0.75" onmouseout="this.style.opacity=1" onclick="openDrilldown(this.dataset.month,this.dataset.cat)"></div>`;
     }).join('');
     return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px"><div style="font-size:8px;color:${m.isCurrent?'var(--primary)':'var(--text3)'};font-weight:${m.isCurrent?'700':'400'}">${m.total>0?Math.round(m.total/1000).toFixed(0)+'k':''}</div><div style="width:100%;display:flex;flex-direction:column-reverse;border-radius:4px 4px 0 0;overflow:hidden;height:${BAR_H}px;background:var(--bg)">${segsHTML}</div><div style="font-size:8px;color:${m.isCurrent?'var(--primary)':'var(--text3)'};font-weight:${m.isCurrent?'700':'400'}">${m.label}</div></div>`;
   }).join('');
