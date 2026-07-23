@@ -293,8 +293,10 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
       <select class="form-select" id="addApt">
         <option value="8A">8A</option>
         <option value="17A">17A</option>
+        <option value="17B">17B</option>
         <option value="28A">28A</option>
         <option value="Zayed 2000">Zayed 2000</option>
+        <option value="To allocate">To allocate (shared)</option>
       </select>
     </div>
     <div class="form-group">
@@ -624,36 +626,56 @@ let currentGroupMembers = [];
 let selectedFile = null;
 let selectedFileBase64 = null;
 
-const CATEGORIES = [
+// OWH business categories — shown when the group is "Airbnb Monthly"
+const OWH_CATEGORIES = [
+  { value: 'rent', label: 'Rent', icon: '🏠' },
+  { value: 'compound maintenance', label: 'Compound', icon: '🏢' },
+  { value: 'cleaning-labor', label: 'Cleaning', icon: '🧹' },
+  { value: 'supplies', label: 'Supplies', icon: '🧴' },
+  { value: 'laundry', label: 'Laundry', icon: '🧺' },
+  { value: 'Maintenance', label: 'Maintenance', icon: '🔧' },
+  { value: 'Electricity', label: 'Electricity', icon: '⚡' },
+  { value: 'Water', label: 'Water', icon: '💧' },
+  { value: 'Heat/gas', label: 'Gas/Heat', icon: '🔥' },
+  { value: 'TV/Phone/Internet', label: 'Internet', icon: '📶' },
+  { value: 'Services', label: 'Services', icon: '🌳' },
+  { value: 'Gifts', label: 'Gifts', icon: '🎁' },
+  { value: 'Furniture', label: 'Furniture', icon: '🛋️' },
+  { value: 'General', label: 'General', icon: '📋' },
+];
+// Personal categories — shown for all other groups
+const PERSONAL_CATEGORIES = [
   { value: 'Groceries', label: 'Groceries', icon: '🛒' },
   { value: 'Dining out', label: 'Dining', icon: '🍽️' },
-  { value: 'Electricity', label: 'Electricity', icon: '⚡' },
-  { value: 'TV/Phone/Internet', label: 'Internet', icon: '📶' },
-  { value: 'Maintenance', label: 'Maintenance', icon: '🔧' },
-  { value: 'Cleaning', label: 'Cleaning', icon: '🧹' },
-  { value: 'Services', label: 'Services', icon: '🛠️' },
-  { value: 'Furniture', label: 'Furniture', icon: '🛋️' },
-  { value: 'Household supplies', label: 'Household', icon: '🏠' },
-  { value: 'Heat/gas', label: 'Gas/Heat', icon: '🔥' },
   { value: 'Gas/fuel', label: 'Fuel', icon: '⛽' },
-  { value: 'Water', label: 'Water', icon: '💧' },
   { value: 'Music', label: 'Music', icon: '🎵' },
   { value: 'Games', label: 'Games', icon: '🎮' },
   { value: 'Sports', label: 'Sports', icon: '⚽' },
-  { value: 'Gifts', label: 'Gifts', icon: '🎁' },
   { value: 'Medical expenses', label: 'Medical', icon: '🏥' },
   { value: 'Electronics', label: 'Electronics', icon: '📱' },
   { value: 'Hotel', label: 'Hotel', icon: '🏨' },
-  { value: 'Mortgage', label: 'Mortgage', icon: '🏦' },
-  { value: 'Insurance', label: 'Insurance', icon: '🛡️' },
+  { value: 'Household supplies', label: 'Household', icon: '🏠' },
+  { value: 'Gifts', label: 'Gifts', icon: '🎁' },
   { value: 'General', label: 'General', icon: '📋' },
   { value: 'Other', label: 'Other', icon: '💼' },
 ];
+// Master union — for icon/label lookups on ALL rows, incl. legacy
+const CATEGORIES = [...OWH_CATEGORIES, ...PERSONAL_CATEGORIES,
+  { value: 'Mortgage', label: 'Mortgage (legacy)', icon: '🏦' },
+  { value: 'Insurance', label: 'Insurance', icon: '🛡️' },
+];
+function catsForGroup(g) { return g === 'Airbnb Monthly' ? OWH_CATEGORIES : PERSONAL_CATEGORIES; }
 
 let customCategories = [];
 
 function renderCatGrid(selected) {
-  const all = [...CATEGORIES, ...customCategories.map(c => ({value:c, label:c, icon:'🏷️'}))];
+  const g = (document.getElementById('addGroup')||{}).value || '';
+  const base = catsForGroup(g);
+  if(!base.some(c=>c.value===selected) && !customCategories.includes(selected)) {
+    selected = base[0].value;
+    const h = document.getElementById('addCategory'); if(h) h.value = selected;
+  }
+  const all = [...base, ...customCategories.map(c => ({value:c, label:c, icon:'🏷️'}))];
   const grid = document.getElementById('catGrid');
   if(!grid) return;
   grid.innerHTML = all.map(c => {
@@ -1366,12 +1388,19 @@ function setEntryType(type, btn) {
   document.querySelectorAll('#entryTypePills .pill').forEach(p=>p.classList.remove('active')); btn.classList.add('active');
   document.getElementById('splitSection').style.display = type==='payment' ? 'none' : 'block';
   document.getElementById('categoryRow').style.display = type==='income' ? 'none' : 'block';
-  document.getElementById('aptRow').style.display = type==='income' ? 'block' : 'none';
+  updateAptVisibility();
   if(type==='income') document.getElementById('addCategory').value = 'Rent - 8A';
   const paidTitle = document.getElementById('paidByTitle'); const paidHint = document.getElementById('paidByHint');
   if(paidTitle) paidTitle.textContent = type==='income' ? 'Who Received the Income?' : 'Who Paid?';
   if(paidHint) paidHint.textContent = type==='income' ? 'Enter how much each person received' : 'Enter how much each person paid';
   updatePaidByRows();
+}
+
+// Apartment field shows for rent income (by flat) OR Airbnb-Monthly expenses (attribution / "To allocate")
+function updateAptVisibility() {
+  const group = document.getElementById('addGroup').value;
+  const show = entryType === 'income' || (entryType === 'expense' && group === 'Airbnb Monthly');
+  document.getElementById('aptRow').style.display = show ? 'block' : 'none';
 }
 
 function setSplitType(type, btn) {
@@ -1386,8 +1415,8 @@ function updateGroupMembers() {
   const groupName = document.getElementById('addGroup').value;
   const group = allGroups.find(g=>g.name===groupName);
   currentGroupMembers = group ? group.members : [];
-  updatePaidByRows(); updateSplitRows();
-  if(document.getElementById('catGrid') && !document.getElementById('catGrid').children.length) { renderCatGrid(document.getElementById('addCategory').value || 'Groceries'); }
+  updatePaidByRows(); updateSplitRows(); updateAptVisibility();
+  renderCatGrid(document.getElementById('addCategory').value || '');   // re-render picker for the group's category set
 }
 
 function updatePaidByRows() {
@@ -1507,7 +1536,9 @@ async function saveEntry() {
   const id = generateId();
   const personalTag = shares['_personal'] ? `[Personal: ${shares['_personal']}]` : '';
   const notesWithPersonal = [notes, personalTag, currencyNote].filter(Boolean).join(' ');
-  const row = [id, group, date, desc, category, amount, 'EGP', entryType, notesWithPersonal, invoiceUrl, shares['Sarah']||0, shares['Khaled']||0, shares['OWH']||0, loggedBy];
+  // O=Apartment · P=Confirmed · Q=Source (new cols). Apartment only for income or Airbnb-Monthly expenses.
+  const apartment = (entryType === 'income' || group === 'Airbnb Monthly') ? (document.getElementById('addApt')?.value || '') : '';
+  const row = [id, group, date, desc, category, amount, 'EGP', entryType, notesWithPersonal, invoiceUrl, shares['Sarah']||0, shares['Khaled']||0, shares['OWH']||0, loggedBy, apartment, 'confirmed', 'manual'];
   try {
     await writeToSheet('Expenses', [row]);
     allExpenses.unshift({ id, group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl, shares:{ Sarah: shares['Sarah']||0, Khaled: shares['Khaled']||0, OWH: shares['OWH']||0 }, loggedBy });
