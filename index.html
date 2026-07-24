@@ -1020,7 +1020,7 @@ function renderPendingConfirm() {
   if(!pend.length) return '';
   let h = `<div class="section-title">⏳ Pending confirmation (${pend.length})</div>`;
   pend.forEach(e => {
-    const cur = pendPayer[e.id] || 'Khaled';
+    const cur = pendPayer[e.id] || (e.shares && Number(e.shares.Sarah)>0 ? 'Sarah' : 'Khaled');   // default toggle to the auto-set payer
     h += `<div class="card" style="border-left:3px solid var(--warn);margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="flex:1;min-width:0">
