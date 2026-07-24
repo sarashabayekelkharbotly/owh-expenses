@@ -991,7 +991,7 @@ async function loadAllData() {
         if(pm) s['_personal'] = pm[1];
         return s;
       })(),
-      loggedBy:r[13]||''
+      loggedBy:r[13]||'', apartment:r[14]||'', confirmed:r[15]||'', source:r[16]||''
     })).filter(e => e.date >= cutoffStr);
     allExpenses.sort((a,b) => b.date.localeCompare(a.date));
 
@@ -1011,6 +1011,59 @@ async function loadAllData() {
 
 function tryParse(str) { try { return JSON.parse(str); } catch(e) { return {}; } }
 
+// Pending auto-entries (from dry-clean / repair / inventory / internet / smoobu) awaiting a who-paid confirm.
+// Confirming flips Confirmed→confirmed (col 16) + writes the payer's split; the Hub then mirrors it to the P&L.
+let pendPayer = {};
+const SRC_ICON = {'dry-clean':'🧺','repair':'🔧','supplies':'🧴','internet':'📶','smoobu':'🔗'};
+function renderPendingConfirm() {
+  const pend = allExpenses.filter(e => String(e.confirmed).toLowerCase() === 'pending');
+  if(!pend.length) return '';
+  let h = `<div class="section-title">⏳ Pending confirmation (${pend.length})</div>`;
+  pend.forEach(e => {
+    const cur = pendPayer[e.id] || 'Khaled';
+    h += `<div class="card" style="border-left:3px solid var(--warn);margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700">${SRC_ICON[e.source]||'📌'} ${e.description}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${translateCat(e.category)} · ${e.apartment||'—'} · ${e.date} · <span style="color:var(--warn);font-weight:700">${e.source||'auto'}</span></div>
+        </div>
+        <div style="font-size:14px;font-weight:900;color:var(--primary);flex-shrink:0">${Math.round(e.amount).toLocaleString()} EGP</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <span style="font-size:11px;color:var(--text2)">Paid by:</span>
+        <div class="pills" style="margin:0">
+          <button class="pill ${cur==='Khaled'?'active':''}" onclick="setPendPayer('${e.id}','Khaled',this)">Khaled</button>
+          <button class="pill ${cur==='Sarah'?'active':''}" onclick="setPendPayer('${e.id}','Sarah',this)">Sarah</button>
+        </div>
+      </div>
+      <button class="btn btn-success" onclick="confirmPending('${e.id}')" style="width:100%;justify-content:center;margin-top:8px">✅ Confirm (OWH bears)</button>
+    </div>`;
+  });
+  return h;
+}
+function setPendPayer(id, who, btn) {
+  pendPayer[id] = who;
+  const row = btn.parentElement;
+  [].forEach.call(row.querySelectorAll('.pill'), p => p.classList.remove('active'));
+  btn.classList.add('active');
+}
+async function confirmPending(id) {
+  const e = allExpenses.find(x => x.id === id); if(!e) return;
+  const payer = pendPayer[id] || 'Khaled';
+  const amt = Math.round(e.amount);
+  const sarahShare = payer === 'Sarah' ? amt : 0, khaledShare = payer === 'Khaled' ? amt : 0;
+  showToast('⏳ Confirming...');
+  try {
+    // Sarah share=col 11, Khaled share=col 12, Confirmed=col 16 (OWH share col 13 stays -amt from creation)
+    await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'updateById', sheet:'Expenses', id, col:11, value:sarahShare})});
+    await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'updateById', sheet:'Expenses', id, col:12, value:khaledShare})});
+    await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'updateById', sheet:'Expenses', id, col:16, value:'confirmed'})});
+    e.confirmed = 'confirmed'; e.shares = {Sarah:sarahShare, Khaled:khaledShare, OWH:-amt};
+    renderHome();
+    showToast('✅ Confirmed — will sync to the Hub P&L');
+  } catch(err) { showToast('❌ Error: ' + err.message); }
+}
+
 function renderHome() {
   const container = document.getElementById('homeContent');
   let html = '';
@@ -1020,6 +1073,7 @@ function renderHome() {
     <button onclick="openDateRangeModal()" style="background:var(--primary);border:none;color:white;font-weight:700;cursor:pointer;font-family:Cairo,sans-serif;font-size:10px;padding:3px 8px;border-radius:6px">Change</button>
   </div>`;
   html += `<div id="homeDueBanner"></div>`;
+  html += renderPendingConfirm();
   // Calculate consolidated totals across all groups
   const totals = {};
   allGroups.forEach(g => {
