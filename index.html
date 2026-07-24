@@ -617,6 +617,18 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxm8PY858JfFz3H3AsFfqrdk96oGcVstiCF7TnO1q_E16GbWGEh-UTChz_Cq1cmMTTejQ/exec';
+// The Hub (properties) endpoint — runs the full pipeline (Smoobu · blocks · dry-clean · inventory · WeShare→P&L)
+const HUB_URL = 'https://script.google.com/macros/s/AKfycbzhR3ESnz3HQyStXvg5OLp5qKZj3lghCuuJtXIkwuEag1cMWLi9JeDCdZhtqtJoZeTJ/exec';
+const HUB_TOKEN = 'OWH-26-KS';
+async function syncAll(){
+  const btn=document.getElementById('weSyncBtn'); if(btn){ btn.disabled=true; btn.textContent='⏳ Syncing…'; }
+  try{
+    const r=await fetch(HUB_URL+'?fn=props_sync_all&token='+HUB_TOKEN+'&t='+Date.now());
+    const j=await r.json();
+    if(j&&j.ok){ showToast('✅ Synced — refreshing'); await loadAllData(); }   // reload so new pending entries show
+    else { showToast('❌ Sync error'); if(btn){btn.disabled=false;btn.textContent='🔄 Sync all';} }
+  }catch(e){ showToast('❌ Sync failed'); if(btn){btn.disabled=false;btn.textContent='🔄 Sync all';} }
+}
 
 let allExpenses = [];
 let allGroups = [];
@@ -1025,7 +1037,8 @@ function renderPendingConfirm() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:700">${SRC_ICON[e.source]||'📌'} ${e.description}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px">${translateCat(e.category)} · ${e.apartment||'—'} · ${e.date} · <span style="color:var(--warn);font-weight:700">${e.source||'auto'}</span></div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${translateCat(e.category)} · ${e.apartment||'—'} · <span style="color:var(--warn);font-weight:700">${e.source||'auto'}</span></div>
+          <div style="font-size:11px;color:var(--text2);margin-top:3px;font-weight:700">📅 ${e.source==='supplies'?'Ordered':e.source==='dry-clean'?'Submitted':e.source==='repair'?'Closed':'Dated'} ${e.date}</div>
         </div>
         <div style="font-size:14px;font-weight:900;color:var(--primary);flex-shrink:0">${Math.round(e.amount).toLocaleString()} EGP</div>
       </div>
@@ -1067,6 +1080,7 @@ async function confirmPending(id) {
 function renderHome() {
   const container = document.getElementById('homeContent');
   let html = '';
+  html += `<button id="weSyncBtn" onclick="syncAll()" style="width:100%;padding:11px;margin-bottom:12px;background:var(--primary);color:#fff;border:none;border-radius:12px;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(204,95,95,0.3)">🔄 Sync all</button>`;
   const rangeLabel = currentDateRange ? `${currentDateRange.from} → ${currentDateRange.to}` : 'Last 12 months';
   html += `<div style="font-size:11px;color:var(--text3);text-align:center;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:6px">
     📅 <span>${rangeLabel} (${allExpenses.length} transactions)</span>
