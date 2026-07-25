@@ -230,7 +230,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 
 <div class="nav">
   <button class="nav-tab active" onclick="showPage('home')"><span class="tab-icon">🏠</span>Home</button>
-  <button class="nav-tab" onclick="showPage('add')"><span class="tab-icon">➕</span>Add</button>
+  <button class="nav-tab" onclick="newEntry()"><span class="tab-icon">➕</span>Add</button>
   <button class="nav-tab" onclick="showPage('expenses')"><span class="tab-icon">📋</span>Expenses</button>
   <button class="nav-tab" onclick="showPage('stats')"><span class="tab-icon">📊</span>Stats</button>
   <button class="nav-tab" onclick="showPage('groups')"><span class="tab-icon">👥</span>Groups</button>
@@ -1855,6 +1855,26 @@ async function deleteExpense(id) {
   } catch(e) { showToast('❌ Error: ' + e.message); }
 }
 
+/* Clears the add form and, crucially, drops editingExpenseId.
+ * Without this the form kept whatever was last typed or loaded, so "Add" opened pre-filled with
+ * the previous entry — confusing, and genuinely unsafe: because editingExpenseId was still set,
+ * saving would DELETE-and-replace that earlier expense instead of creating a new one.
+ * Called from the Add tab and from logRecurring() (a recurring item is a NEW entry, not an edit). */
+function resetAddForm() {
+  window.editingExpenseId = null;
+  ['addAmount','addDesc','addNotes','addExchangeRate'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.value = '';
+  });
+  var d = document.getElementById('addDate'); if(d) { try { d.valueAsDate = new Date(); } catch(e) { d.value = ''; } }
+  // paid-by and split amounts are rebuilt empty, but clear them explicitly in case the rows persist
+  document.querySelectorAll('#paidByRows input, #splitRows input').forEach(function(i){ i.value = ''; });
+  var btn = document.querySelector('#page-add .btn-primary');
+  if(btn) { btn.textContent = '💾 Save'; btn.disabled = false; }
+}
+
+/* The Add tab must start from a clean form — see resetAddForm(). */
+function newEntry() { resetAddForm(); showPage('add'); }
+
 function editExpense(id) {
   const e = allExpenses.find(x=>x.id===id); if(!e) return;
   closeExpModal(); showPage('add');
@@ -1864,9 +1884,34 @@ function editExpense(id) {
     document.getElementById('addDesc').value = e.description; document.getElementById('addNotes').value = e.notes || '';
     document.getElementById('addCategory').value = e.category;
     if(document.getElementById('addLoggedBy') && e.loggedBy) document.getElementById('addLoggedBy').value = e.loggedBy;
+
+    /* --- restore the apartment (Airbnb Monthly / income rows) --- */
+    var aptEl = document.getElementById('addApt');
+    if(aptEl && e.apartment) { aptEl.value = e.apartment; if(typeof updateAptVisibility==='function') updateAptVisibility(); }
+
+    /* --- restore WHO PAID ---
+       The sheet stores only the NET position per member (shares[m] = paid[m] − owed[m]), not the raw
+       "paid" figures and not the split type, so an exact restore isn't possible from stored data.
+       In practice one person pays the whole amount (that's what the confirm flow writes), so the
+       payer is the member with the largest positive net, and their paid figure is the full amount.
+       Previously nothing was restored at all and updateGroupMembers() rebuilt these inputs EMPTY,
+       so "who paid" silently vanished on every edit. */
+    var payer = null, best = 0;
+    if(e.shares) Object.keys(e.shares).forEach(function(m){
+      var val = Number(e.shares[m]) || 0;
+      if(val > best) { best = val; payer = m; }
+    });
+    if(payer) {
+      var pi = document.getElementById('paid_' + payer);
+      if(pi) pi.value = e.amount;
+    }
+
     renderCatGrid(e.category); window.editingExpenseId = id;
     const saveBtn = document.querySelector('#page-add .btn-primary'); if(saveBtn) saveBtn.textContent = '💾 Update Expense';
-    showToast('✏️ Edit mode — make changes and save');
+    // The split type is not stored, so it resets to the default — say so rather than let a custom
+    // split be silently rewritten on save.
+    showToast(payer ? ('✏️ Edit mode — ' + payer + ' paid. Check the Split section before saving')
+                    : '✏️ Edit mode — check Who Paid and Split before saving');
   }, 100);
 }
 
@@ -2042,6 +2087,7 @@ function checkRecurringDue() {
 
 function logRecurring(id) {
   const r = allRecurring.find(x=>x.id===id); if(!r) return;
+  resetAddForm();          // a recurring item is a NEW entry — never inherit an edit in progress
   showPage('add');
   setTimeout(() => {
     document.getElementById('addGroup').value = r.group; updateGroupMembers();
