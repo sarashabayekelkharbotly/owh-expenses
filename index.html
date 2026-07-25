@@ -626,6 +626,42 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxm8PY858JfFz3H3AsFfqrdk96oGcVstiCF7TnO1q_E16GbWGEh-UTChz_Cq1cmMTTejQ/exec';
+
+/* ============================================================
+   SESSION TOKEN ON EVERY BACKEND CALL — installed once, here.
+   The backend now refuses any action without a valid session, so every request must carry
+   the token. Rather than edit each of the ~15 fetch() call sites (and risk missing one, or a
+   future one being added without it), this wraps fetch: any POST to SCRIPT_URL gets the
+   token merged into its JSON body automatically, and any 'AUTH' rejection returns the user
+   to the sign-in screen.
+   Deliberately central: a call site that forgets the token is a broken feature, and a NEW
+   action added later is covered without anyone remembering to.
+   ============================================================ */
+(function () {
+  const _fetch = window.fetch.bind(window);
+  window.fetch = function (url, opts) {
+    let o = opts;
+    if (typeof url === 'string' && url.indexOf(SCRIPT_URL) === 0 && o && o.body && typeof o.body === 'string') {
+      try {
+        const b = JSON.parse(o.body);
+        // auth_login is the one action that must work WITHOUT a token
+        if (b && b.action && b.action !== 'auth_login' && !b.sid) {
+          const sid = (typeof wsGetSid === 'function') ? wsGetSid() : '';
+          if (sid) { b.sid = sid; o = Object.assign({}, o, { body: JSON.stringify(b) }); }
+        }
+      } catch (e) { /* not JSON — leave the request exactly as it was */ }
+    }
+    return _fetch(url, o).then(function (res) {
+      if (typeof url === 'string' && url.indexOf(SCRIPT_URL) === 0) {
+        // peek at a clone so the caller still gets an unread body
+        res.clone().json().then(function (j) {
+          if (j && j.ok === false && j.code === 'AUTH' && typeof window.wsSessionExpired === 'function') window.wsSessionExpired();
+        }).catch(function () {});
+      }
+      return res;
+    });
+  };
+})();
 /* Runs the full pipeline (Smoobu · blocks · dry-clean · inventory · WeShare→P&L).
    This page is PUBLIC, so it holds NO secret: it asks WeShare's own backend to do the sync, and that
    backend (private Apps Script source) holds the Hub's SYNC_TOKEN. A token pasted into this file
@@ -797,12 +833,21 @@ function onAuthReady(session) {
 
 // ── Auth functions ───────────────────────────────────────────────
 (function(){
-  var AUTH_URL = 'https://script.google.com/macros/s/AKfycbwq4F1gpNoPr5Yn7BnqqWukuE9zJsbsEl2l9cXV1plM-tKvK154lOLRDGmilANAPBoqJg/exec';
+  /* Login now goes to SCRIPT_URL — the SAME script that serves the data — instead of the
+     dry-clean script's AUTH_URL. That separation was the whole problem: the data script had
+     no idea whether the auth script had approved anyone, so it served every request. The old
+     screen only hid the UI (and getSession() below accepted any localStorage object with the
+     right field names, so it could be walked straight past).
+     The dry-clean script's own 'Users' tab and auth_login are left untouched, so dry-clean
+     and inventory keep working exactly as before. */
   var SESS_KEY = 'owh_session';
 
   function getSession(){
-    try{ var r=localStorage.getItem(SESS_KEY); if(!r) return null; var s=JSON.parse(r); return (s&&s.username&&s.displayName)?s:null; }catch(e){return null;}
+    /* Requires a token now. A fabricated localStorage entry gets rejected by the server on
+       the first request, because only the server can mint a valid token. */
+    try{ var r=localStorage.getItem(SESS_KEY); if(!r) return null; var s=JSON.parse(r); return (s&&s.username&&s.sid)?s:null; }catch(e){return null;}
   }
+  window.wsGetSid = function(){ var s=getSession(); return s?s.sid:''; };
   function saveSession(s){ localStorage.setItem(SESS_KEY,JSON.stringify(s)); }
   function clearSession(){ localStorage.removeItem(SESS_KEY); }
 
@@ -827,10 +872,10 @@ function onAuthReady(session) {
     if(!u||!p){ showErr('الرجاء إدخال اسم المستخدم وكلمة المرور'); return; }
     setLoading(true);
     try{
-      var res=await fetch(AUTH_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'auth_login',username:u,password:p})});
+      var res=await fetch(SCRIPT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'auth_login',username:u,password:p})});
       var data=await res.json();
       if(data.ok){
-        var sess={username:data.username,displayName:data.displayName,role:data.role};
+        var sess={username:data.username,displayName:data.displayName,role:data.role,sid:data.sid};
         saveSession(sess);
         hideLoginScreen(sess);
       } else {
@@ -854,11 +899,12 @@ function onAuthReady(session) {
     },360);
   }
 
-  window.showSwitchUser = function(){
-    clearSession();
+  /* Brings the sign-in screen back. showErr lets the caller explain why (e.g. expired). */
+  function returnToLogin(msg){
     document.getElementById('loginUsername').value='';
     document.getElementById('loginPassword').value='';
     hideErr();
+    if(msg) showErr(msg);
     var sc=document.getElementById('loginScreen');
     var lk=document.getElementById('appLock');
     sc.style.opacity='0';
@@ -866,6 +912,28 @@ function onAuthReady(session) {
     lk.style.display='block';
     requestAnimationFrame(function(){ sc.style.transition='opacity .25s ease'; sc.style.opacity='1'; });
     setTimeout(function(){ var u=document.getElementById('loginUsername'); if(u) u.focus(); },120);
+  }
+
+  window.showSwitchUser = function(){
+    /* Tell the server to destroy the token, not just forget it locally — otherwise a copied
+       token would keep working until it expired. Fire-and-forget: the UI shouldn't wait. */
+    var sid = wsGetSid();
+    if(sid){
+      try{ fetch(SCRIPT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
+        body:JSON.stringify({action:'auth_logout',sid:sid})}).catch(function(){}); }catch(e){}
+    }
+    clearSession();
+    returnToLogin();
+  };
+
+  /* Called by the fetch wrapper when the backend answers 'AUTH' — token expired, revoked,
+     or fabricated. Drop it and ask for a real sign-in. Guarded so it only fires once. */
+  var expiredShown = false;
+  window.wsSessionExpired = function(){
+    if(expiredShown) return;
+    expiredShown = true;
+    clearSession();
+    returnToLogin('انتهت الجلسة — الرجاء تسجيل الدخول مرة أخرى');
   };
 
   ['loginUsername','loginPassword'].forEach(function(id){
