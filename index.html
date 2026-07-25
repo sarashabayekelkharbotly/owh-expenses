@@ -1,4 +1,13 @@
 <!DOCTYPE html>
+<!-- ============================================================
+     DEPLOYS TO:  WeShare repo  →  index.html   (NOT "weshare_index.html")
+     GitHub Pages serves index.html. Uploading this under its local name just
+     adds a second, unused file and the old page keeps being served.
+     To deploy: open index.html in the repo → pencil/Edit → Ctrl+A → paste this
+     whole file → Commit → hard-refresh the app (Ctrl+Shift+R).
+     Named weshare_index.html locally only because this folder also holds The
+     Hub's own index.html.
+     ============================================================ -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -617,13 +626,14 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 
 <script>
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxm8PY858JfFz3H3AsFfqrdk96oGcVstiCF7TnO1q_E16GbWGEh-UTChz_Cq1cmMTTejQ/exec';
-// The Hub (properties) endpoint — runs the full pipeline (Smoobu · blocks · dry-clean · inventory · WeShare→P&L)
-const HUB_URL = 'https://script.google.com/macros/s/AKfycbzhR3ESnz3HQyStXvg5OLp5qKZj3lghCuuJtXIkwuEag1cMWLi9JeDCdZhtqtJoZeTJ/exec';
-const HUB_TOKEN = 'OWH-26-KS';
+/* Runs the full pipeline (Smoobu · blocks · dry-clean · inventory · WeShare→P&L).
+   This page is PUBLIC, so it holds NO secret: it asks WeShare's own backend to do the sync, and that
+   backend (private Apps Script source) holds the Hub's SYNC_TOKEN. A token pasted into this file
+   would be readable by anyone who opens the page. */
 async function syncAll(){
   const btn=document.getElementById('weSyncBtn'); if(btn){ btn.disabled=true; btn.textContent='⏳ Syncing…'; }
   try{
-    const r=await fetch(HUB_URL+'?fn=props_sync_all&token='+HUB_TOKEN+'&t='+Date.now());
+    const r=await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'hub_sync'})});
     const j=await r.json();
     if(j&&j.ok){ showToast('✅ Synced — refreshing'); await loadAllData(); }   // reload so new pending entries show
     else { showToast('❌ Sync error'); if(btn){btn.disabled=false;btn.textContent='🔄 Sync all';} }
