@@ -1115,19 +1115,52 @@ function tryParse(str) { try { return JSON.parse(str); } catch(e) { return {}; }
 // Pending auto-entries (from dry-clean / repair / inventory / internet / smoobu) awaiting a who-paid confirm.
 // Confirming flips Confirmed→confirmed (col 16) + writes the payer's split; the Hub then mirrors it to the P&L.
 let pendPayer = {};
+let pendSel   = {};                       // id → false when unticked; missing/true = will be confirmed
 const SRC_ICON = {'dry-clean':'🧺','repair':'🔧','supplies':'🧴','internet':'📶','smoobu':'🔗'};
+
+function pendList(){ return allExpenses.filter(e => String(e.confirmed).toLowerCase() === 'pending'); }
+function payerFor(e){ return pendPayer[e.id] || (e.shares && Number(e.shares.Sarah) > 0 ? 'Sarah' : 'Khaled'); }
+function isSel(e){ return pendSel[e.id] !== false; }
+
+/* Review the whole pending list, fix the payer on the few that need it, confirm the lot in one go.
+   Confirming one at a time meant three requests per row, which is why entries sat here for days. */
 function renderPendingConfirm() {
-  const pend = allExpenses.filter(e => String(e.confirmed).toLowerCase() === 'pending');
+  const pend = pendList();
   if(!pend.length) return '';
+  const sel = pend.filter(isSel);
+  const selTotal = sel.reduce((a,e) => a + Math.round(e.amount||0), 0);
+  const bySrc = {};
+  pend.forEach(e => { const s = e.source||'auto'; bySrc[s] = (bySrc[s]||0) + 1; });
+
   let h = `<div class="section-title">⏳ Pending confirmation (${pend.length})</div>`;
+
+  h += `<div class="card" style="border-left:3px solid var(--warn);margin-bottom:8px;padding:10px">
+    <div style="font-size:11px;color:var(--text2);margin-bottom:7px">Select
+      <span style="color:var(--text3)">· ${Object.keys(bySrc).map(s=>`${SRC_ICON[s]||'📌'} ${s} ${bySrc[s]}`).join(' · ')}</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px">
+      <button class="pill" onclick="pendSelect('all')">All</button>
+      <button class="pill" onclick="pendSelect('none')">None</button>
+      ${Object.keys(bySrc).map(s=>`<button class="pill" onclick="pendSelect('${s}')">${SRC_ICON[s]||'📌'} ${s}</button>`).join('')}
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:5px">Set every payer to</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="pill" onclick="pendPayerAll('Khaled')">Khaled</button>
+      <button class="pill" onclick="pendPayerAll('Sarah')">Sarah</button>
+    </div>
+  </div>`;
+
   pend.forEach(e => {
-    const cur = pendPayer[e.id] || (e.shares && Number(e.shares.Sarah)>0 ? 'Sarah' : 'Khaled');   // default toggle to the auto-set payer
-    h += `<div class="card" style="border-left:3px solid var(--warn);margin-bottom:8px">
+    const cur = payerFor(e), on = isSel(e);
+    h += `<div class="card" style="border-left:3px solid ${on?'var(--warn)':'var(--border,#ddd)'};margin-bottom:8px;${on?'':'opacity:.5'}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:700">${SRC_ICON[e.source]||'📌'} ${e.description}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px">${translateCat(e.category)} · ${e.apartment||'—'} · <span style="color:var(--warn);font-weight:700">${e.source||'auto'}</span></div>
-          <div style="font-size:11px;color:var(--text2);margin-top:3px;font-weight:700">📅 ${e.source==='supplies'?'Ordered':e.source==='dry-clean'?'Submitted':e.source==='repair'?'Closed':'Dated'} ${e.date}</div>
+        <div style="display:flex;gap:9px;flex:1;min-width:0">
+          <input type="checkbox" ${on?'checked':''} onchange="pendToggle('${e.id}')"
+                 style="width:17px;height:17px;margin-top:2px;flex-shrink:0;accent-color:var(--primary);cursor:pointer">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:700">${SRC_ICON[e.source]||'📌'} ${e.description}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">${translateCat(e.category)} · ${e.apartment||'—'} · <span style="color:var(--warn);font-weight:700">${e.source||'auto'}</span></div>
+            <div style="font-size:11px;color:var(--text2);margin-top:3px;font-weight:700">📅 ${e.source==='supplies'?'Ordered':e.source==='dry-clean'?'Submitted':e.source==='repair'?'Closed':'Dated'} ${e.date}</div>
+          </div>
         </div>
         <div style="font-size:14px;font-weight:900;color:var(--primary);flex-shrink:0">${Math.round(e.amount).toLocaleString()} EGP</div>
       </div>
@@ -1138,32 +1171,56 @@ function renderPendingConfirm() {
           <button class="pill ${cur==='Sarah'?'active':''}" onclick="setPendPayer('${e.id}','Sarah',this)">Sarah</button>
         </div>
       </div>
-      <button class="btn btn-success" onclick="confirmPending('${e.id}')" style="width:100%;justify-content:center;margin-top:8px">✅ Confirm (OWH bears)</button>
     </div>`;
   });
+
+  h += `<button id="bulkConfirmBtn" class="btn btn-success" onclick="confirmSelected()" ${sel.length?'':'disabled'}
+    style="width:100%;justify-content:center;margin-bottom:14px;padding:12px;font-size:14px;${sel.length?'':'opacity:.5;cursor:not-allowed'}">
+    ✅ Confirm ${sel.length} of ${pend.length} · ${selTotal.toLocaleString()} EGP</button>`;
   return h;
 }
-function setPendPayer(id, who, btn) {
-  pendPayer[id] = who;
-  const row = btn.parentElement;
-  [].forEach.call(row.querySelectorAll('.pill'), p => p.classList.remove('active'));
-  btn.classList.add('active');
+
+function pendToggle(id){ pendSel[id] = (pendSel[id] === false); renderHome(); }   // unticked → ticked, else untick
+function pendSelect(what){
+  pendList().forEach(e => {
+    if(what==='all')       pendSel[e.id] = true;
+    else if(what==='none') pendSel[e.id] = false;
+    else                   pendSel[e.id] = ((e.source||'auto') === what);
+  });
+  renderHome();
 }
-async function confirmPending(id) {
-  const e = allExpenses.find(x => x.id === id); if(!e) return;
-  const payer = pendPayer[id] || 'Khaled';
-  const amt = Math.round(e.amount);
-  const sarahShare = payer === 'Sarah' ? amt : 0, khaledShare = payer === 'Khaled' ? amt : 0;
-  showToast('⏳ Confirming...');
+function pendPayerAll(who){ pendList().forEach(e => { pendPayer[e.id] = who; }); renderHome(); }
+
+/* Re-render rather than poke the DOM: the confirm button's count and total have to follow the
+   selection, and there is no cheap way to keep those in step by hand. */
+function setPendPayer(id, who){ pendPayer[id] = who; renderHome(); }
+
+async function confirmSelected() {
+  const items = pendList().filter(isSel).map(e => ({ id: e.id, payer: payerFor(e) }));
+  if(!items.length){ showToast('Nothing selected'); return; }
+  const btn = document.getElementById('bulkConfirmBtn');
+  if(btn){ btn.disabled = true; btn.textContent = `⏳ Confirming ${items.length}…`; }
   try {
-    // Sarah share=col 11, Khaled share=col 12, Confirmed=col 16 (OWH share col 13 stays -amt from creation)
-    await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'updateById', sheet:'Expenses', id, col:11, value:sarahShare})});
-    await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'updateById', sheet:'Expenses', id, col:12, value:khaledShare})});
-    await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'updateById', sheet:'Expenses', id, col:16, value:'confirmed'})});
-    e.confirmed = 'confirmed'; e.shares = {Sarah:sarahShare, Khaled:khaledShare, OWH:-amt};
+    const res = await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({action:'confirmBatch', sheet:'Expenses', items})});
+    const j = await res.json();
+    if(!j || j.ok === false) throw new Error((j && j.error) || 'confirm failed');
+
+    // mirror the server's per-row outcome locally so the list is accurate without a full reload
+    (j.results||[]).forEach(r => {
+      const e = allExpenses.find(x => x.id === r.id); if(!e) return;
+      if(!r.ok) return;
+      const amt = Math.round(e.amount||0);
+      e.confirmed = 'confirmed';
+      e.shares = { Sarah: r.payer==='Sarah'?amt:0, Khaled: r.payer==='Khaled'?amt:0, OWH: -amt };
+    });
+    pendSel = {};
     renderHome();
-    showToast('✅ Confirmed — will sync to the Hub P&L');
-  } catch(err) { showToast('❌ Error: ' + err.message); }
+    showToast(`✅ ${j.confirmed} confirmed${j.skipped?` · ${j.skipped} skipped (already done)`:''} — will sync to the Hub P&L`);
+  } catch(err) {
+    showToast('❌ Error: ' + err.message);
+    renderHome();                                  // put the button back in a usable state
+  }
 }
 
 function renderHome() {
