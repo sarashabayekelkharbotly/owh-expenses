@@ -625,6 +625,9 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 </div>
 
 <script>
+/* LOCAL date, never toISOString: UTC lags Egypt — after midnight the app showed yesterday and
+   filed new expenses under it (same bug family as the Control app fix). */
+function ymdLocal(d){ d = d || new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxm8PY858JfFz3H3AsFfqrdk96oGcVstiCF7TnO1q_E16GbWGEh-UTChz_Cq1cmMTTejQ/exec';
 
 /* ============================================================
@@ -818,8 +821,8 @@ function onAuthReady(session) {
     document.getElementById('addDate').valueAsDate = new Date();
     const drTo = new Date(); const drFrom = new Date();
     drFrom.setMonth(drFrom.getMonth() - 12);
-    document.getElementById('drTo').value = drTo.toISOString().split('T')[0];
-    document.getElementById('drFrom').value = drFrom.toISOString().split('T')[0];
+    document.getElementById('drTo').value = ymdLocal(drTo);
+    document.getElementById('drFrom').value = ymdLocal(drFrom);
     document.getElementById('homeContent').innerHTML = `<div class="loading"><div class="spinner"></div><span id="loadingMsg">Connecting to Google Sheet...</span></div>`;
     loadSettings();
     generateAppIcon();
@@ -985,7 +988,7 @@ function parseSheetDate(val) {
   const num = parseFloat(s);
   if(!isNaN(num) && num > 40000 && num < 60000) {
     const d = new Date((Math.floor(num) - 25569) * 86400 * 1000);
-    return d.toISOString().split('T')[0];
+    return ymdLocal(d);
   }
   return s;
 }
@@ -1078,7 +1081,7 @@ async function loadAllData() {
 
     // Recent transactions (last 4 months)
     const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - 4);
-    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const cutoffStr = ymdLocal(cutoff);
     const eRows = D.expenses || [];
     totalRowsInSheet = eRows.length;
     allExpenses = eRows.filter(r=>r[0] && r[0]!=='DELETED').map(r => ({
@@ -1367,7 +1370,7 @@ function renderExpensesPage() {
   exps.sort((a,b)=>b.date.localeCompare(a.date));
   const now = new Date();
   const cutoff = new Date(now.getFullYear(), now.getMonth() - (monthsShown - 1), 1);
-  const cutoffStr = cutoff.toISOString().split('T')[0];
+  const cutoffStr = ymdLocal(cutoff);
   const filtered = exps.filter(e => e.date >= cutoffStr);
   const hasMore = exps.length > filtered.length;
   const container = document.getElementById('expensesList');
@@ -1840,7 +1843,7 @@ async function recordSingleSettlement(groupId, from, to, idx) {
   const inputEl = document.getElementById('settleAmount_' + idx);
   const amount = inputEl ? parseFloat(inputEl.value) : 0;
   if(!amount || amount < 0.5) { showToast('⚠️ Enter a valid amount'); return; }
-  const date = new Date().toISOString().split('T')[0];
+  const date = ymdLocal();
   const rows = [];
   const sarahShare  = from==='Sarah'  ? amount : to==='Sarah'  ? -amount : 0;
   const khaledShare = from==='Khaled' ? amount : to==='Khaled' ? -amount : 0;
@@ -1860,7 +1863,7 @@ async function recordSingleSettlement(groupId, from, to, idx) {
 
 async function recordSettlement(groupId, settlements) {
   const group = allGroups.find(g=>g.id===groupId); if(!group) return;
-  const date = new Date().toISOString().split('T')[0];
+  const date = ymdLocal();
   const rows = [];
   const finalSettlements = settlements || [];
   finalSettlements.forEach(s => {
@@ -2135,7 +2138,7 @@ function isLoggedThisMonth(recurring, curMonth) { return allExpenses.some(e => e
 function checkRecurringDue() {
   const now = new Date(); const today = now.getDate(); const curMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`; const globalReminderDay = appSettings.reminderDay || 24;
   const due = allRecurring.filter(r => { if(r.endDate && r.endDate < curMonth + '-01') return false; if(isLoggedThisMonth(r, curMonth)) return false; const alertDay = (r.day && r.day > 0) ? r.day : globalReminderDay; return today >= alertDay; });
-  const todayStr = new Date().toISOString().split('T')[0]; const lastReminderSent = localStorage.getItem('lastRecurringReminder');
+  const todayStr = ymdLocal(); const lastReminderSent = localStorage.getItem('lastRecurringReminder');
   if(due.length > 0 && lastReminderSent !== todayStr) { localStorage.setItem('lastRecurringReminder', todayStr); sendRecurringReminderNotification(due); }
   if(due.length === 0) return;
   const homeDue = document.getElementById('homeDueBanner');
@@ -2285,8 +2288,8 @@ function initSearch() {
   const container = document.getElementById('searchGroupFilter');
   if(container && container.children.length <= 1) { allGroups.forEach(g => { container.innerHTML += `<button class="pill" onclick="setSearchGroup('${g.name}',this)">${g.name}</button>`; }); }
   const to = new Date(); const from = new Date(); from.setFullYear(from.getFullYear() - 1);
-  if(!document.getElementById('searchTo').value) document.getElementById('searchTo').value = to.toISOString().split('T')[0];
-  if(!document.getElementById('searchFrom').value) document.getElementById('searchFrom').value = from.toISOString().split('T')[0];
+  if(!document.getElementById('searchTo').value) document.getElementById('searchTo').value = ymdLocal(to);
+  if(!document.getElementById('searchFrom').value) document.getElementById('searchFrom').value = ymdLocal(from);
   runSearch();
 }
 
@@ -2361,7 +2364,7 @@ function initSettingsPage() {
   initNotifications();
 }
 
-function setPreset(months) { const to = new Date(); const from = new Date(); from.setMonth(from.getMonth() - months); document.getElementById('drTo').value = to.toISOString().split('T')[0]; document.getElementById('drFrom').value = from.toISOString().split('T')[0]; }
+function setPreset(months) { const to = new Date(); const from = new Date(); from.setMonth(from.getMonth() - months); document.getElementById('drTo').value = ymdLocal(to); document.getElementById('drFrom').value = ymdLocal(from); }
 function setPresetYear(yearsAgo) { const year = new Date().getFullYear() - yearsAgo; document.getElementById('drFrom').value = `${year}-01-01`; document.getElementById('drTo').value = `${year}-12-31`; }
 
 ['expenseModal','settleModal','addGroupModal','dateRangeModal','addRecurringModal','drilldownModal'].forEach(id => {
