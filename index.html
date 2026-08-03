@@ -1165,7 +1165,11 @@ function renderPendingConfirm() {
             <div style="font-size:11px;color:var(--text2);margin-top:3px;font-weight:700">📅 ${e.source==='supplies'?'Ordered':e.source==='dry-clean'?'Submitted':e.source==='repair'?'Closed':'Dated'} ${e.date}</div>
           </div>
         </div>
-        <div style="font-size:14px;font-weight:900;color:var(--primary);flex-shrink:0">${Math.round(e.amount).toLocaleString()} EGP</div>
+        ${e.source==='jinny'
+          ? `<div style="flex-shrink:0;text-align:left"><input type="number" value="${Math.round(e.amount)}" onchange="setPendAmount('${e.id}',this.value)"
+               style="width:78px;border:1.5px solid var(--warn);border-radius:8px;padding:5px 6px;font-size:14px;font-weight:900;color:var(--primary);text-align:center;font-family:'Cairo',sans-serif">
+               <div style="font-size:10px;color:var(--text3);margin-top:2px">EGP — عدّلي السعر لو مختلف</div></div>`
+          : `<div style="font-size:14px;font-weight:900;color:var(--primary);flex-shrink:0">${Math.round(e.amount).toLocaleString()} EGP</div>`}
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <span style="font-size:11px;color:var(--text2)">Paid by:</span>
@@ -1197,6 +1201,26 @@ function pendPayerAll(who){ pendList().forEach(e => { pendPayer[e.id] = who; });
 /* Re-render rather than poke the DOM: the confirm button's count and total have to follow the
    selection, and there is no cheap way to keep those in step by hand. */
 function setPendPayer(id, who){ pendPayer[id] = who; renderHome(); }
+
+/* Jinny's session price drifts (650/775) — the pending card lets it be corrected in place BEFORE
+   confirming. confirmBatch reads the amount from the SHEET at confirm time, so the edit must land
+   in col F first; the OWH share (col M, written as −amount at creation) must follow or the
+   settlement math drifts. Jinny rows only — dry-clean/repair/supplies amounts belong to their
+   source apps and must never be edited here. */
+async function setPendAmount(id, v){
+  const amt = Math.round(parseFloat(v));
+  if(isNaN(amt) || amt <= 0){ showToast('سعر غير صحيح'); renderHome(); return; }
+  const e = allExpenses.find(x => x.id === id); if(!e || e.source !== 'jinny') return;
+  try {
+    await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({action:'updateById', sheet:'Expenses', id:id, col:6, value:amt})});
+    await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({action:'updateById', sheet:'Expenses', id:id, col:13, value:-amt})});
+    e.amount = amt;
+    renderHome();
+    showToast(`✅ سعر جيني اتحدث: ${amt} EGP`);
+  } catch(err){ showToast('❌ لم يتم الحفظ — حاول مرة أخرى'); renderHome(); }
+}
 
 async function confirmSelected() {
   const items = pendList().filter(isSel).map(e => ({ id: e.id, payer: payerFor(e) }));
