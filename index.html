@@ -1171,7 +1171,9 @@ function renderPendingConfirm() {
           <input type="checkbox" ${on?'checked':''} onchange="pendToggle('${e.id}')"
                  style="width:17px;height:17px;margin-top:2px;flex-shrink:0;accent-color:var(--primary);cursor:pointer">
           <div style="flex:1;min-width:0">
-            <div style="font-size:13px;font-weight:700">${SRC_ICON[e.source]||'📌'} ${e.description}</div>
+            <div style="font-size:13px;font-weight:700">${SRC_ICON[e.source]||'📌'} ${e.description}
+              <span onclick="deletePending('${e.id}')" title="حذف — للصفوف المكررة أو الغلط فقط"
+                    style="color:#cc5f5f;cursor:pointer;font-size:11px;padding:0 5px">✕</span></div>
             <div style="font-size:11px;color:var(--text3);margin-top:2px">${translateCat(e.category)} · ${e.apartment||'—'} · <span style="color:var(--warn);font-weight:700">${e.source||'auto'}</span></div>
             <div style="font-size:11px;color:var(--text2);margin-top:3px;font-weight:700">📅 ${e.source==='supplies'?'Ordered':e.source==='dry-clean'?'Submitted':e.source==='repair'?'Closed':'Dated'} ${e.date}</div>
           </div>
@@ -1218,6 +1220,28 @@ function setPendPayer(id, who){ pendPayer[id] = who; renderHome(); }
    in col F first; the OWH share (col M, written as −amount at creation) must follow or the
    settlement math drifts. Jinny rows only — dry-clean/repair/supplies amounts belong to their
    source apps and must never be edited here. */
+/* Delete a PENDING row (Sarah 2026-08-08: "I cannot delete a pending item"). Only pending — the
+   never-delete-a-settled-row rule protects confirmed entries, but a pending row is precisely the
+   state where deletion is legitimate: it carries no split, touches no balance, and exists only to
+   be confirmed or rejected. The duplicate Jinny 650 is the textbook case. */
+async function deletePending(id){
+  const e = allExpenses.find(x => x.id === id);
+  if(!e || !isPend(e)) return;
+  if(!confirm(`حذف "${e.description}" (${Math.round(e.amount)} EGP)؟\nللصفوف المكررة أو الغلط فقط — التأكيد العادي من زرار Confirm.`)) return;
+  try {
+    const res = await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({action:'deleteById', sheet:'Expenses', id:id})});
+    const j = await res.json();
+    // deleteById answers {success:true/false}, not {ok:...} — checking the wrong field would have
+    // treated "Row not found" as a successful delete
+    if(!j || j.success === false || j.ok === false) throw new Error((j && j.error) || 'delete failed');
+    allExpenses = allExpenses.filter(x => x.id !== id);
+    delete pendSel[id]; delete pendPayer[id];
+    renderHome();
+    showToast('🗑️ اتحذف');
+  } catch(err){ showToast('❌ لم يُحذف — حاول مرة أخرى'); }
+}
+
 async function setPendAmount(id, v){
   const amt = Math.round(parseFloat(v));
   if(isNaN(amt) || amt <= 0){ showToast('سعر غير صحيح'); renderHome(); return; }
@@ -1404,7 +1428,9 @@ function filterExpType(type, btn) { expTypeFilter = type; document.querySelector
 let monthsShown = 1;
 
 function renderExpensesPage() {
-  let exps = [...allExpenses];
+  /* Pending is NOT a transaction yet (Sarah 2026-08-08): it lives in the pending card on Home and
+     nowhere else. Until confirmed it has no payer, no split and no place among the group's money. */
+  let exps = allExpenses.filter(e => !isPend(e));
   if(expGroupFilter !== 'all') exps = exps.filter(e=>e.group===expGroupFilter);
   if(expTypeFilter !== 'all') exps = exps.filter(e=>e.type===expTypeFilter);
   exps.sort((a,b)=>b.date.localeCompare(a.date));
@@ -2092,13 +2118,13 @@ async function openDrilldown(monthStr, category) {
   document.getElementById('drilldownContent').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   document.getElementById('drilldownModal').classList.add('open');
   try {
-    let monthExps = allExpenses.filter(e => e.date && e.date.startsWith(monthStr));
+    let monthExps = allExpenses.filter(e => e.date && e.date.startsWith(monthStr) && !isPend(e));
     if(monthExps.length === 0) {
       if(drilldownCache[monthStr]) { monthExps = drilldownCache[monthStr]; }
       else {
         document.getElementById('drilldownSubtitle').textContent = 'Fetching from sheet...';
-        const eRows = await fetchSheet('Expenses!A2:N6000');
-        const allRows = eRows.filter(r=>r[0]&&r[0]!=='DELETED').map(r => ({ id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'', category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP', type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'', shares:{ Sarah:parseFloat(r[10]||0), Khaled:parseFloat(r[11]||0), OWH:parseFloat(r[12]||0) }, loggedBy:r[13]||'' }));
+        const eRows = await fetchSheet('Expenses!A2:Q6000');
+        const allRows = eRows.filter(r=>r[0]&&r[0]!=='DELETED').map(r => ({ id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'', category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP', type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'', shares:{ Sarah:parseFloat(r[10]||0), Khaled:parseFloat(r[11]||0), OWH:parseFloat(r[12]||0) }, loggedBy:r[13]||'', confirmed:r[15]||'' })).filter(e => !isPend(e));
         monthExps = allRows.filter(e => e.date && e.date.startsWith(monthStr));
         drilldownCache[monthStr] = monthExps;
       }
@@ -2352,9 +2378,9 @@ async function runSearch() {
   if(needsMoreData) {
     const countEl = document.getElementById('searchCount'); if(countEl) countEl.textContent = '⏳ Fetching data...';
     try {
-      const eRows = await fetchSheet('Expenses!A2:N6000');
-      searchPool = eRows.filter(r=>r[0]&&r[0]!=='DELETED').map(r => ({ id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'', category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP', type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'', shares:{ Sarah:parseFloat(r[10]||0), Khaled:parseFloat(r[11]||0), OWH:parseFloat(r[12]||0) }, loggedBy:r[13]||'' }));
-    } catch(e) { searchPool = allExpenses; }
+      const eRows = await fetchSheet('Expenses!A2:Q6000');   // through Q so Confirmed rides along — pending must not surface in search
+      searchPool = eRows.filter(r=>r[0]&&r[0]!=='DELETED').map(r => ({ id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'', category:r[4]||'', amount:parseFloat(r[5]||0), currency:r[6]||'EGP', type:r[7]||'expense', notes:r[8]||'', invoiceUrl:r[9]||'', shares:{ Sarah:parseFloat(r[10]||0), Khaled:parseFloat(r[11]||0), OWH:parseFloat(r[12]||0) }, loggedBy:r[13]||'', confirmed:r[15]||'' })).filter(e => !isPend(e));
+    } catch(e) { searchPool = allExpenses.filter(e => !isPend(e)); }
   }
   let results = [...searchPool];
   if(searchGroupFilter !== 'all') results = results.filter(e => e.group === searchGroupFilter);
