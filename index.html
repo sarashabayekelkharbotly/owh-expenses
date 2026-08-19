@@ -783,6 +783,8 @@ function getCatIcon(cat) {
 let statsMonth = null;
 let totalRowsInSheet = 0;
 let allHistoryLoaded = false;
+let wsSheetOldest = '';          // earliest date in the WHOLE sheet, learned from we_get_older — declared
+                                 // up here because renderExpensesPage reads it and runs before that point
 let currentDateRange = null;
 let statsGroupFilter = 'all';
 let expGroupFilter = 'all';
@@ -1026,18 +1028,20 @@ async function loadDateRange() {
 let allMonthlyTotals = [];
 
 // One batched load call, with the same cold-start retry as fetchSheet
-async function callBatched(action = 'we_get_boot', force = false, attemptsLeft = 1, timeoutMs = 25000) {
+/* `extra` carries the parameters an action needs beyond force — the older-history window sends
+   {before, months} (2026-08-19). The session id is added by the fetch wrapper, as for every call. */
+async function callBatched(action = 'we_get_boot', force = false, attemptsLeft = 1, timeoutMs = 25000, extra = null) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(SCRIPT_URL, {
       method: 'POST', headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action, force: force ? 1 : 0 }), signal: controller.signal
+      body: JSON.stringify(Object.assign({ action, force: force ? 1 : 0 }, extra || {})), signal: controller.signal
     });
     if (!res.ok) throw new Error(action + ' failed: ' + res.status);
     return await res.json();
   } catch (e) {
-    if (attemptsLeft > 0) return callBatched(action, force, attemptsLeft - 1, timeoutMs);
+    if (attemptsLeft > 0) return callBatched(action, force, attemptsLeft - 1, timeoutMs, extra);
     throw e;
   } finally {
     clearTimeout(timer);
@@ -1493,9 +1497,56 @@ function renderExpensesPage() {
   const container = document.getElementById('expensesList');
   if(filtered.length===0) { container.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div>No transactions found</div></div>'; return; }
   let html = filtered.map(e=>renderExpItem(e)).join('');
-  if(hasMore) { html += `<button class="btn btn-outline" onclick="loadMoreMonths()" style="width:100%;justify-content:center;margin-top:8px">📅 Load previous month (${exps.length - filtered.length} more)</button>`; }
-  else { html += `<div style="text-align:center;color:var(--text3);font-size:11px;padding:12px">All ${exps.length} transactions shown</div>`; }
+  /* "All N transactions shown" WAS A LIE (Sarah 2026-08-19). This button only ever revealed more of
+     what the boot had already put in memory — four months — and once that ran out it announced the
+     end of the ledger while older months sat unread in the sheet. Now, when memory is exhausted, it
+     fetches the next TWO MONTHS from the server: a deliberate click, a bounded read, repeatable. */
+  if(hasMore) {
+    html += `<button class="btn btn-outline" onclick="loadMoreMonths()" style="width:100%;justify-content:center;margin-top:8px">📅 Load previous month (${exps.length - filtered.length} more loaded)</button>`;
+  } else if(!allHistoryLoaded && wsOldestLoaded() > (wsSheetOldest || '0000')) {
+    html += `<button class="btn btn-outline" id="fetchOlderBtn" onclick="fetchOlderMonths()" style="width:100%;justify-content:center;margin-top:8px">⬇️ Fetch 2 more months from the sheet<div style="font-size:10px;font-weight:400;opacity:.75">showing back to ${wsOldestLoaded()}${totalRowsInSheet?` · ${exps.length} of ${totalRowsInSheet} rows`:''}</div></button>`;
+  } else {
+    html += `<div style="text-align:center;color:var(--text3);font-size:11px;padding:12px">All ${exps.length} transactions shown${wsSheetOldest?` — back to ${wsSheetOldest}`:''}</div>`;
+  }
   container.innerHTML = html;
+}
+/* the earliest date the app currently holds — where the next window should end */
+function wsOldestLoaded(){
+  let o = ''; allExpenses.forEach(e => { if(e.date && (!o || e.date < o)) o = e.date; });
+  return o || ymdLocal(new Date());
+}
+let wsFetchingOlder = false;
+async function fetchOlderMonths(){
+  if(wsFetchingOlder) return;
+  wsFetchingOlder = true;
+  const btn = document.getElementById('fetchOlderBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Loading…'; }
+  try {
+    const before = wsOldestLoaded();
+    const r = await callBatched('we_get_older', false, 1, 30000, { before, months: 2 });
+    if(!r || r.ok !== true) throw new Error((r && r.error) || 'failed');
+    wsSheetOldest = r.oldest || wsSheetOldest;
+    const have = new Set(allExpenses.map(e => e.id));
+    const add = (r.expenses || []).filter(row => row[0] && !have.has(row[0])).map(row => ({
+      id:row[0]||'', group:row[1]||'', date:parseSheetDate(row[2]||''), description:row[3]||'',
+      category:row[4]||'', amount:parseFloat(row[5]||0), currency:row[6]||'EGP',
+      type:row[7]||'expense', notes:row[8]||'', invoiceUrl:row[9]||'',
+      shares:{ Sarah:parseFloat(row[10]||0), Khaled:parseFloat(row[11]||0), OWH:parseFloat(row[12]||0) },
+      loggedBy:row[13]||''
+    }));
+    allExpenses = allExpenses.concat(add);
+    allExpenses.sort((a,b) => b.date.localeCompare(a.date));
+    // reveal what just arrived rather than making her press the other button as well
+    monthsShown += (r.months || 2);
+    saveWsCache();
+    renderExpensesPage(); renderStatsPage();
+    showToast(add.length ? `✅ +${add.length} transactions (${r.from} → ${r.to})`
+                         : `— nothing recorded between ${r.from} and ${r.to}`);
+  } catch(e) {
+    showToast('❌ Could not load older months — ' + (e.message || 'try again'));
+    renderExpensesPage();
+  }
+  wsFetchingOlder = false;
 }
 
 function loadMoreMonths() { monthsShown += 1; renderExpensesPage(); }
