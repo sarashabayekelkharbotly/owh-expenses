@@ -1194,6 +1194,13 @@ const SRC_ICON = {'dry-clean':'🧺','repair':'🔧','supplies':'🧴','internet
 
 function isPend(e){ return String(e.confirmed).toLowerCase() === 'pending'; }
 function pendList(){ return allExpenses.filter(isPend); }
+/* Payment-day cards (Sarah 2026-09-02: 28A rent on the 12th, the workers on the 26th) are born at
+   month start but not payable yet. Until their date arrives they collapse into an "upcoming"
+   group and stay UNSELECTED by default, so confirm-all can never confirm money that has not
+   moved. Early payment is still one tap away — expand the group and tick the card. */
+let upcomingOpen = false;
+function todayYmd(){ const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function isDue(e){ return String(e.date||'') <= todayYmd(); }
 /* Default payer: her pick > the `payer:` hint the sync writes in the note > legacy pre-filled
    shares (old rows) > Sarah. Pending rows no longer carry a split (2026-08-08 — it was putting
    unconfirmed money straight into the group), so the hint moved into the note. */
@@ -1205,19 +1212,27 @@ function payerFor(e){
   if (e.shares && Number(e.shares.Sarah)  > 0) return 'Sarah';
   return e.source === 'dry-clean' ? 'Khaled' : 'Sarah';
 }
-function isSel(e){ return pendSel[e.id] !== false; }
+function isSel(e){ return isDue(e) ? pendSel[e.id] !== false : pendSel[e.id] === true; }
 
 /* Review the whole pending list, fix the payer on the few that need it, confirm the lot in one go.
    Confirming one at a time meant three requests per row, which is why entries sat here for days. */
 function renderPendingConfirm() {
-  const pend = pendList();
-  if(!pend.length) return '';
-  const sel = pend.filter(isSel);
+  const pendAll = pendList();
+  if(!pendAll.length) return '';
+  const pend = pendAll.filter(isDue), upcoming = pendAll.filter(e => !isDue(e));
+  const sel = pendAll.filter(isSel);
   const selTotal = sel.reduce((a,e) => a + Math.round(e.amount||0), 0);
   const bySrc = {};
   pend.forEach(e => { const s = e.source||'auto'; bySrc[s] = (bySrc[s]||0) + 1; });
 
-  let h = `<div class="section-title">⏳ Pending confirmation (${pend.length})</div>`;
+  let h = pend.length ? `<div class="section-title">⏳ Pending confirmation (${pend.length})</div>` : '';
+  if(!pend.length){
+    h += upcomingBlock(upcoming);
+    if(sel.length) h += `<button id="bulkConfirmBtn" class="btn btn-success" onclick="confirmSelected()"
+      style="width:100%;justify-content:center;margin-bottom:14px;padding:12px;font-size:14px">
+      ✅ Confirm ${sel.length} · ${selTotal.toLocaleString()} EGP</button>`;
+    return h;
+  }
 
   h += `<div class="card" style="border-left:3px solid var(--warn);margin-bottom:8px;padding:10px">
     <div style="font-size:11px;color:var(--text2);margin-bottom:7px">Select
@@ -1234,9 +1249,30 @@ function renderPendingConfirm() {
     </div>
   </div>`;
 
-  pend.forEach(e => {
+  pend.forEach(e => { h += pendCard(e); });
+  h += upcomingBlock(upcoming);
+
+  h += `<button id="bulkConfirmBtn" class="btn btn-success" onclick="confirmSelected()" ${sel.length?'':'disabled'}
+    style="width:100%;justify-content:center;margin-bottom:14px;padding:12px;font-size:14px;${sel.length?'':'opacity:.5;cursor:not-allowed'}">
+    ✅ Confirm ${sel.length} of ${pendAll.length} · ${selTotal.toLocaleString()} EGP</button>`;
+  return h;
+}
+
+/* Not-yet-due cards, one quiet collapsed line — tap to expand into the same full cards (ticking
+   one there = paying early; it joins the Confirm button's count). */
+function upcomingBlock(upcoming){
+  if(!upcoming.length) return '';
+  const upTot = upcoming.reduce((a,e) => a + Math.round(e.amount||0), 0);
+  let h = `<div class="card" style="margin-bottom:8px;padding:10px;cursor:pointer;opacity:.8" onclick="upcomingOpen=!upcomingOpen;renderHome()">
+    <div style="font-size:12.5px;font-weight:700">📅 ${upcomingOpen?'▾':'◂'} Upcoming this month (${upcoming.length}) · ${upTot.toLocaleString()} EGP</div>
+    <div style="font-size:10.5px;color:var(--text3);margin-top:2px">بطاقات لسه معاد دفعها ما جاش — بتظهر هنا لحد يومها</div></div>`;
+  if(upcomingOpen) upcoming.forEach(e => { h += pendCard(e); });
+  return h;
+}
+
+function pendCard(e){
     const cur = payerFor(e), on = isSel(e);
-    h += `<div class="card" style="border-left:3px solid ${on?'var(--warn)':'var(--border,#ddd)'};margin-bottom:8px;${on?'':'opacity:.5'}">
+    return `<div class="card" style="border-left:3px solid ${on?'var(--warn)':'var(--border,#ddd)'};margin-bottom:8px;${on?'':'opacity:.5'}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="display:flex;gap:9px;flex:1;min-width:0">
           <input type="checkbox" ${on?'checked':''} onchange="pendToggle('${e.id}')"
@@ -1263,20 +1299,14 @@ function renderPendingConfirm() {
           style="margin-inline-start:auto;background:#fdecec;border:1px solid #f0b9b9;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;color:#cc5f5f;cursor:pointer;font-family:'Cairo',sans-serif;flex-shrink:0">🗑️ حذف</button>
       </div>
     </div>`;
-  });
-
-  h += `<button id="bulkConfirmBtn" class="btn btn-success" onclick="confirmSelected()" ${sel.length?'':'disabled'}
-    style="width:100%;justify-content:center;margin-bottom:14px;padding:12px;font-size:14px;${sel.length?'':'opacity:.5;cursor:not-allowed'}">
-    ✅ Confirm ${sel.length} of ${pend.length} · ${selTotal.toLocaleString()} EGP</button>`;
-  return h;
 }
 
 function pendToggle(id){ pendSel[id] = (pendSel[id] === false); renderHome(); }   // unticked → ticked, else untick
 function pendSelect(what){
   pendList().forEach(e => {
-    if(what==='all')       pendSel[e.id] = true;
+    if(what==='all')       pendSel[e.id] = isDue(e);              // "All" never scoops up not-yet-due cards
     else if(what==='none') pendSel[e.id] = false;
-    else                   pendSel[e.id] = ((e.source||'auto') === what);
+    else                   pendSel[e.id] = ((e.source||'auto') === what) && isDue(e);
   });
   renderHome();
 }
