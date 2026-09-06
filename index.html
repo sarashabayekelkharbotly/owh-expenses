@@ -305,6 +305,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
         <option value="17B">17B</option>
         <option value="28A">28A</option>
         <option value="Zayed 2000">Zayed 2000</option>
+        <option value="VW1">VW1 (Village West)</option>
         <option value="To allocate">To allocate (shared)</option>
       </select>
     </div>
@@ -561,6 +562,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
         <option value="17B">17B</option>
         <option value="28A">28A</option>
         <option value="Zayed 2000">Zayed 2000</option>
+        <option value="VW1">VW1 (Village West)</option>
         <option value="To allocate">To allocate (shared)</option>
       </select>
     </div>
@@ -716,6 +718,7 @@ const OWH_CATEGORIES = [
   { value: 'Gardening', label: 'Gardening', icon: '🌳' },   // per-flat in the Hub — not every apartment has a garden (2026-08-23)
   { value: 'Channel management', label: 'Channel mgmt', icon: '📡' },   // Dani — cash-only in the Hub; the P&L accrues it beside Smoobu (2026-09-01)
   { value: 'Ops manager', label: 'Ops manager', icon: '🧰' },   // Emad — cash-only; the opsManager accrual is the cost (2026-09-01)
+  { value: 'Owner payout', label: 'Owner payout', icon: '🏦' },   // settlement wired to a partner flat's owner — balance-sheet, never the P&L (2026-09-03)
   { value: 'Gifts', label: 'Gifts', icon: '🎁' },
   { value: 'Furniture', label: 'Furniture', icon: '🛋️' },
   { value: 'General', label: 'General', icon: '📋' },
@@ -1949,7 +1952,7 @@ async function saveEntry() {
     for(const m of currentGroupMembers) { const paid = parseFloat(document.getElementById('paid_'+m)?.value||0); if(paid > amount) { showToast(`⚠️ ${m}'s payment can't exceed total`); return; } }
     if(splitType === 'custom') { const totalSplit = currentGroupMembers.reduce((s,m) => s + (parseFloat(document.getElementById('split_'+m)?.value||0)), 0); if(totalSplit > 0 && Math.abs(totalSplit - amount) > 1) { showToast(`⚠️ Split total must equal expense amount`); return; } }
   }
-  if(entryType==='income') { const apt = document.getElementById('addApt').value; category = `Rent - ${apt}`; }
+  if(entryType==='income') { const apt = document.getElementById('addApt').value; category = apt==='VW1' ? 'Owner prepayment' : `Rent - ${apt}`; }   // VW1: the owner's money in, never rent
   const saveBtn = document.querySelector('#page-add .btn-primary');
   if(saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Saving...'; }
   showToast('⏳ Saving...');
@@ -1970,6 +1973,11 @@ async function saveEntry() {
     const incomeShares = {};
     currentGroupMembers.forEach(m => { const received = parseFloat(document.getElementById('paid_' + m)?.value || 0); incomeShares[m] = received > 0 ? -received : 0; });
     incomeShares['OWH'] = amount; shares = incomeShares;
+    /* VW1 income = the OWNER's money arriving (auto-categorized "Owner prepayment" below — she has
+       no rent here). The NATIVE share logic already says the right thing (Sarah 2026-09-03):
+       received personally → receiver −, OWH +; straight into the company account → OWH + alone,
+       "OWH received and bears it all". The category, not the shares, is what routes it to the
+       Owner ledger. */
   }
   const id = generateId();
   const personalTag = shares['_personal'] ? `[Personal: ${shares['_personal']}]` : '';
