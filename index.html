@@ -1498,7 +1498,7 @@ function renderExpItem(e) {
       <div>
         <div class="exp-desc">${typeIcon} ${e.description}</div>
         <div class="exp-meta">${e.date} • ${e.group}${e.loggedBy ? ' • by ' + e.loggedBy : ''}</div>
-        <span class="cat-badge ${catClass}">${translateCat(e.category)}</span>
+        <span class="cat-badge ${catClass}">${translateCat(e.category)}</span>${e.apartment ? `<span class="cat-badge" style="background:var(--surface3)">🏠 ${e.apartment}</span>` : ''}
       </div>
       <div style="text-align:left">
         <div class="exp-amount">${e.amount.toLocaleString()} EGP</div>
@@ -1987,7 +1987,7 @@ async function saveEntry() {
   const row = [id, group, date, desc, category, amount, 'EGP', entryType, notesWithPersonal, invoiceUrl, shares['Sarah']||0, shares['Khaled']||0, shares['OWH']||0, loggedBy, apartment, 'confirmed', 'manual'];
   try {
     await writeToSheet('Expenses', [row]);
-    allExpenses.unshift({ id, group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl, shares:{ Sarah: shares['Sarah']||0, Khaled: shares['Khaled']||0, OWH: shares['OWH']||0 }, loggedBy });
+    allExpenses.unshift({ id, group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl, shares:{ Sarah: shares['Sarah']||0, Khaled: shares['Khaled']||0, OWH: shares['OWH']||0 }, loggedBy, apartment });
     sendExpenseNotification(desc, amount, group, loggedBy, entryType);
     const isRecurring = document.getElementById('addIsRecurring')?.checked;
     if(isRecurring) {
