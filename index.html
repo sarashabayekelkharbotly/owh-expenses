@@ -2321,9 +2321,16 @@ async function openDrilldown(monthStr, category) {
 function closeDrilldown() { document.getElementById('drilldownModal').classList.remove('open'); }
 
 async function writeToSheet(sheetName, rows) {
-  const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'append', sheet:sheetName, rows}) });
-  if(!res.ok) throw new Error('Write failed');
-  return res.json();
+  /* 20s cap, NO retry (2026-09-10 sweep): a raw append has no server-side dedupe, so a retry
+     could file the entry twice — and without a timeout a platform stall left the save spinner
+     hanging forever. On timeout the caller's catch reports failure; if the write actually landed,
+     the reload shows it and the person deletes the visible twin — visible beats silent. */
+  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 20000);
+  try {
+    const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'append', sheet:sheetName, rows}), signal: ctl.signal });
+    if(!res.ok) throw new Error('Write failed');
+    return res.json();
+  } finally { clearTimeout(timer); }
 }
 
 async function uploadInvoice(base64, filename, mimeType) {
