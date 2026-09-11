@@ -701,6 +701,7 @@ let splitType = 'equal';
 let currentGroupMembers = [];
 let selectedFile = null;
 let selectedFileBase64 = null;
+let selectedFileMeta = null;   // {name, type} of what will actually be uploaded (compressed ≠ original)
 
 // OWH business categories — shown when the group is "Airbnb Monthly"
 const OWH_CATEGORIES = [
@@ -785,7 +786,7 @@ async function addCustomCat() {
   const val = input.value.trim();
   if(!val) return;
   if(!customCategories.includes(val)) {
-    try { await writeToSheet('Categories', [[val]]); customCategories.push(val); showToast('✅ Category added!'); }
+    try { await writeToSheet('Categories', [[val]], true); customCategories.push(val); showToast('✅ Category added!'); }   // col A = the name itself — refusing a twin name is exactly right
     catch(e) { showToast('❌ Could not save category'); }
   }
   input.value = ''; selectCat(val); renderCatGrid(val);
@@ -1924,11 +1925,56 @@ function calcShares() {
   return shares;
 }
 
-function handleFileSelect(input) {
+/* One id per THING-being-saved, kept across re-taps, retries and even a page refresh (15 min),
+   released on success. The server refuses an id it already filed — so attempt №2 of the same
+   entry can never become a twin, while a deliberate identical entry made AFTER a success gets
+   a fresh id and saves normally. Born 2026-09-11, the night one Dryclean landed 4×. */
+function stableId(fp) {
+  const key = 'ws_sid_' + fp;
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {   // sweep leftovers of long-dead attempts
+      const k = localStorage.key(i);
+      if (k && k.startsWith('ws_sid_')) { try { const p = JSON.parse(localStorage.getItem(k)); if (!p || Date.now() - p.t > 15*60*1000) localStorage.removeItem(k); } catch(e) { localStorage.removeItem(k); } }
+    }
+    const raw = localStorage.getItem(key);
+    if (raw) { const p = JSON.parse(raw); if (p && p.id) return p.id; }
+  } catch(e) {}
+  const id = generateId();
+  try { localStorage.setItem(key, JSON.stringify({ id, t: Date.now() })); } catch(e) {}
+  return id;
+}
+function stableIdDone(fp) { try { localStorage.removeItem('ws_sid_' + fp); } catch(e) {} }
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => { const r = new FileReader(); r.onload = e => resolve(e.target.result); r.onerror = () => reject(new Error('Could not read file')); r.readAsDataURL(file); });
+}
+
+async function compressImage(file) {
+  /* Phone photos are 3–8MB and base64 adds a third on top — THAT was the slowness of the
+     4×Dryclean night. 1600px JPEG keeps every receipt line readable at ~200–400KB. PDFs and
+     already-small images pass through untouched; any failure falls back to the original. */
+  if (!file.type.startsWith('image/') || file.size < 300*1024) return null;
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' })
+      .catch(() => createImageBitmap(file));   // older Safari rejects the options object
+    const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bmp.width * scale)); canvas.height = Math.max(1, Math.round(bmp.height * scale));
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    return dataUrl.length < file.size * 1.3 ? dataUrl : null;   // only if genuinely smaller
+  } catch(e) { return null; }
+}
+
+async function handleFileSelect(input) {
   const file = input.files[0]; if(!file) return; selectedFile = file;
-  const reader = new FileReader();
-  reader.onload = (e) => { selectedFileBase64 = e.target.result; const preview = document.getElementById('uploadPreview'); if(file.type.startsWith('image/')) { preview.innerHTML = `<img src="${e.target.result}" alt="invoice" style="max-width:100%;max-height:120px;border-radius:8px;margin-top:8px">`; } else { preview.innerHTML = `<div style="padding:8px;background:var(--surface3);border-radius:8px;font-size:12px;margin-top:8px">📄 ${file.name}</div>`; } };
-  reader.readAsDataURL(file);
+  const compressed = await compressImage(file);
+  selectedFileBase64 = compressed || await fileToDataUrl(file).catch(() => null);
+  if (!selectedFileBase64) { showToast('⚠️ Could not read the file'); selectedFile = null; selectedFileMeta = null; return; }
+  selectedFileMeta = compressed ? { name: file.name.replace(/\.[^.]*$/, '') + '.jpg', type: 'image/jpeg' }
+                                : { name: file.name, type: file.type };
+  const preview = document.getElementById('uploadPreview');
+  if(file.type.startsWith('image/')) { preview.innerHTML = `<img src="${selectedFileBase64}" alt="invoice" style="max-width:100%;max-height:120px;border-radius:8px;margin-top:8px">`; } else { preview.innerHTML = `<div style="padding:8px;background:var(--surface3);border-radius:8px;font-size:12px;margin-top:8px">📄 ${file.name}</div>`; }
 }
 
 async function saveEntry() {
@@ -1957,7 +2003,7 @@ async function saveEntry() {
   if(saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Saving...'; }
   showToast('⏳ Saving...');
   let invoiceUrl = '';
-  if(selectedFileBase64) { try { invoiceUrl = await uploadInvoice(selectedFileBase64, selectedFile.name, selectedFile.type); } catch(e) { showToast('⚠️ Invoice upload failed, saving without it'); } }
+  if(selectedFileBase64) { try { invoiceUrl = await uploadInvoice(selectedFileBase64, selectedFileMeta.name, selectedFileMeta.type); } catch(e) { showToast('⚠️ Invoice upload failed, saving without it'); } }
   let shares = {};
   if(entryType === 'payment') {
     const from = document.getElementById('settlementFrom')?.value;
@@ -1979,22 +2025,26 @@ async function saveEntry() {
        "OWH received and bears it all". The category, not the shares, is what routes it to the
        Owner ledger. */
   }
-  const id = generateId();
+  // Same form re-tapped (or re-saved after a refresh) = same id, so the server can recognize
+  // attempt №2 of the same entry. Released on success — see stableId().
+  const saveFp = ['exp', date, desc, amount, loggedBy, entryType].join('|');
+  const id = stableId(saveFp);
   const personalTag = shares['_personal'] ? `[Personal: ${shares['_personal']}]` : '';
   const notesWithPersonal = [notes, personalTag, currencyNote].filter(Boolean).join(' ');
   // O=Apartment · P=Confirmed · Q=Source (new cols). Apartment only for income or Airbnb-Monthly expenses.
   const apartment = (entryType === 'income' || group === 'Airbnb Monthly') ? (document.getElementById('addApt')?.value || '') : '';
   const row = [id, group, date, desc, category, amount, 'EGP', entryType, notesWithPersonal, invoiceUrl, shares['Sarah']||0, shares['Khaled']||0, shares['OWH']||0, loggedBy, apartment, 'confirmed', 'manual'];
   try {
-    await writeToSheet('Expenses', [row]);
+    await writeToSheet('Expenses', [row], true);
+    stableIdDone(saveFp);
     allExpenses.unshift({ id, group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl, shares:{ Sarah: shares['Sarah']||0, Khaled: shares['Khaled']||0, OWH: shares['OWH']||0 }, loggedBy, apartment });
     sendExpenseNotification(desc, amount, group, loggedBy, entryType);
     const isRecurring = document.getElementById('addIsRecurring')?.checked;
     if(isRecurring) {
       const recurDay = parseInt(document.getElementById('addRecurringDay')?.value||1);
       const paidBy = currentGroupMembers.find(m => (parseFloat(document.getElementById('paid_'+m)?.value||0)) > 0) || currentGroupMembers[0];
-      const recId = generateId();
-      await writeToSheet('Recurring', [[recId, desc, amount, recurDay, group, category, paidBy, splitType, notes]]);
+      const recId = 'R' + id;   // derived from the entry's stable id → a retried save can't file the recurring rule twice either
+      await writeToSheet('Recurring', [[recId, desc, amount, recurDay, group, category, paidBy, splitType, notes]], true);
       allRecurring.push({ id:recId, description:desc, amount, day:recurDay, group, category, paidBy, split:splitType, notes });
     }
     if(window.editingExpenseId) {
@@ -2011,7 +2061,7 @@ async function saveEntry() {
     if(document.getElementById('addExchangeRate')) document.getElementById('addExchangeRate').value = '';
     if(document.getElementById('exchangeRateRow')) document.getElementById('exchangeRateRow').style.display = 'none';
     if(document.getElementById('currencyPreview')) document.getElementById('currencyPreview').style.display = 'none';
-    selectedFile = null; selectedFileBase64 = null;
+    selectedFile = null; selectedFileBase64 = null; selectedFileMeta = null;
     await updateMonthlyTotalsForMonth(date.substring(0,7), group);
     renderHome(); renderExpensesPage();
     const saveBtnFinal = document.querySelector('#page-add .btn-primary'); if(saveBtnFinal) { saveBtnFinal.disabled = false; saveBtnFinal.textContent = '💾 Save'; }
@@ -2072,22 +2122,26 @@ async function recordSingleSettlement(groupId, from, to, idx) {
   const inputEl = document.getElementById('settleAmount_' + idx);
   const amount = inputEl ? parseFloat(inputEl.value) : 0;
   if(!amount || amount < 0.5) { showToast('⚠️ Enter a valid amount'); return; }
+  const btn = document.querySelector(`button[onclick*="recordSingleSettlement('${groupId}', '${from}', '${to}', ${idx})"]`);
+  if(btn && btn.disabled) return;   // already in flight or already recorded
+  if(btn) { btn.disabled = true; btn.textContent = '⏳'; }
   const date = ymdLocal();
+  const setFp = ['set', groupId, from, to, date, amount].join('|');   // re-tap = same id = server refuses a twin
   const rows = [];
   const sarahShare  = from==='Sarah'  ? amount : to==='Sarah'  ? -amount : 0;
   const khaledShare = from==='Khaled' ? amount : to==='Khaled' ? -amount : 0;
   const owhShare    = from==='OWH'    ? amount : to==='OWH'    ? -amount : 0;
-  rows.push([generateId(), group.name, date, `Settlement: ${from} → ${to}`, 'Payment', amount, 'EGP', 'payment', 'Monthly settlement', '', sarahShare, khaledShare, owhShare, 'System']);
+  rows.push([stableId(setFp), group.name, date, `Settlement: ${from} → ${to}`, 'Payment', amount, 'EGP', 'payment', 'Monthly settlement', '', sarahShare, khaledShare, owhShare, 'System']);
   try {
     showToast('⏳ Recording...');
-    await writeToSheet('Expenses', rows);
+    await writeToSheet('Expenses', rows, true);
+    stableIdDone(setFp);
     rows.forEach(r => allExpenses.unshift({id:r[0],group:r[1],date:r[2],description:r[3],category:r[4],amount:r[5],currency:'EGP',type:'payment',notes:r[8],invoiceUrl:'',shares:{Sarah:r[10],Khaled:r[11],OWH:r[12]},loggedBy:r[13]}));
     // Mark this settlement as recorded in the UI
-    const btn = document.querySelector(`button[onclick*="recordSingleSettlement('${groupId}', '${from}', '${to}', ${idx})"]`);
-    if(btn) { btn.textContent = '✅ Recorded'; btn.disabled = true; btn.style.background = 'var(--ok)'; }
+    if(btn) { btn.textContent = '✅ Recorded'; btn.style.background = 'var(--ok)'; }
     renderHome(); renderGroupsPage();
     showToast('✅ Settlement recorded!');
-  } catch(e) { showToast('❌ Error: ' + e.message); }
+  } catch(e) { if(btn) { btn.disabled = false; btn.textContent = '✅ Record'; } showToast('❌ Error: ' + e.message); }
 }
 
 async function recordSettlement(groupId, settlements) {
@@ -2095,17 +2149,20 @@ async function recordSettlement(groupId, settlements) {
   const date = ymdLocal();
   const rows = [];
   const finalSettlements = settlements || [];
+  const fps = [];
   finalSettlements.forEach(s => {
     if(s.amount < 0.5) return;
     const sarahShare  = s.from==='Sarah'  ? s.amount : s.to==='Sarah'  ? -s.amount : 0;
     const khaledShare = s.from==='Khaled' ? s.amount : s.to==='Khaled' ? -s.amount : 0;
     const owhShare    = s.from==='OWH'    ? s.amount : s.to==='OWH'    ? -s.amount : 0;
-    rows.push([generateId(), group.name, date, `Settlement: ${s.from} → ${s.to}`, 'Payment', s.amount, 'EGP', 'payment', 'Monthly settlement', '', sarahShare, khaledShare, owhShare, 'System']);
+    const fp = ['set', groupId, s.from, s.to, date, s.amount].join('|'); fps.push(fp);
+    rows.push([stableId(fp), group.name, date, `Settlement: ${s.from} → ${s.to}`, 'Payment', s.amount, 'EGP', 'payment', 'Monthly settlement', '', sarahShare, khaledShare, owhShare, 'System']);
   });
   if(!rows.length) { showToast('Nothing to settle'); return; }
   try {
     showToast('⏳ Recording...');
-    await writeToSheet('Expenses', rows);
+    await writeToSheet('Expenses', rows, true);
+    fps.forEach(stableIdDone);
     rows.forEach(r => allExpenses.unshift({id:r[0],group:r[1],date:r[2],description:r[3],category:r[4],amount:r[5],currency:'EGP',type:'payment',notes:r[8],invoiceUrl:'',shares:tryParse(r[10]),loggedBy:r[11]}));
     closeSettleModal(); renderHome(); renderGroupsPage(); showToast('✅ Settlement recorded!');
   } catch(e) { showToast('❌ Error: ' + e.message); }
@@ -2224,17 +2281,17 @@ function editExpense(id) {
 
 async function addInvoiceToExpense(id, input) {
   const file = input.files[0]; if(!file) return; showToast('⏳ Uploading invoice...');
-  const reader = new FileReader();
-  reader.onload = async (ev) => {
-    try {
-      const url = await uploadInvoice(ev.target.result, file.name, file.type);
-      if(!url) { showToast('❌ Upload failed — no URL returned'); return; }
-      await fetch(SCRIPT_URL, { method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ action: 'updateById', sheet: 'Expenses', id: id, col: 10, value: url }) });
-      const idx = allExpenses.findIndex(e=>e.id===id); if(idx > -1) allExpenses[idx].invoiceUrl = url;
-      openExpModal(id); showToast('✅ Invoice added!');
-    } catch(e) { showToast('❌ Upload failed: ' + e.message); }
-  };
-  reader.readAsDataURL(file);
+  try {
+    const compressed = await compressImage(file);   // same shrink as the add form — the upload IS the slow part
+    const b64  = compressed || await fileToDataUrl(file);
+    const name = compressed ? file.name.replace(/\.[^.]*$/, '') + '.jpg' : file.name;
+    const type = compressed ? 'image/jpeg' : file.type;
+    const url = await uploadInvoice(b64, name, type);
+    if(!url) { showToast('❌ Upload failed — no URL returned'); return; }
+    await fetch(SCRIPT_URL, { method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ action: 'updateById', sheet: 'Expenses', id: id, col: 10, value: url }) });
+    const idx = allExpenses.findIndex(e=>e.id===id); if(idx > -1) allExpenses[idx].invoiceUrl = url;
+    openExpModal(id); showToast('✅ Invoice added!');
+  } catch(e) { showToast('❌ Upload failed: ' + e.message); }
 }
 
 async function deleteInvoice(id) {
@@ -2263,7 +2320,7 @@ async function saveNewGroup() {
   const id = 'g' + Date.now(); const newGroup = { id, name, members: checked, color: '#cc5f5f' };
   try {
     showToast('⏳ Saving...');
-    await writeToSheet('Groups', [[id, name, checked.join(','), '#cc5f5f', '']]);
+    await writeToSheet('Groups', [[id, name, checked.join(','), '#cc5f5f', '']], true);
     allGroups.push(newGroup); renderGroupsPage(); populateGroupSelect(); populateGroupFilters();
     closeAddGroupModal(); showToast('✅ Group added!');
   } catch(e) { allGroups.push(newGroup); renderGroupsPage(); populateGroupSelect(); populateGroupFilters(); closeAddGroupModal(); showToast('✅ Group added'); }
@@ -2320,25 +2377,41 @@ async function openDrilldown(monthStr, category) {
 
 function closeDrilldown() { document.getElementById('drilldownModal').classList.remove('open'); }
 
-async function writeToSheet(sheetName, rows) {
-  /* 20s cap, NO retry (2026-09-10 sweep): a raw append has no server-side dedupe, so a retry
-     could file the entry twice — and without a timeout a platform stall left the save spinner
-     hanging forever. On timeout the caller's catch reports failure; if the write actually landed,
-     the reload shows it and the person deletes the visible twin — visible beats silent. */
-  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 20000);
-  try {
-    const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'append', sheet:sheetName, rows}), signal: ctl.signal });
-    if(!res.ok) throw new Error('Write failed');
-    return res.json();
-  } finally { clearTimeout(timer); }
+async function writeToSheet(sheetName, rows, unique) {
+  /* unique=true ⇒ every row's column A is an id the server refuses to file twice (2026-09-11,
+     the night one Dryclean landed 4×) — which finally makes ONE retry after a timeout safe:
+     a client timeout never stops Google's server, so the first attempt may have landed anyway,
+     and only the id check makes retrying harmless. 10s ×2 keeps the worst case near 20s.
+     unique=false (MonthlyTotals — column A is a month, not an id) keeps the old contract:
+     20s, single attempt, no retry, visible twin beats silent one. */
+  for (let attempt = 0; ; attempt++) {
+    const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), unique ? 10000 : 20000);
+    try {
+      const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'append', sheet:sheetName, rows, unique:!!unique}), signal: ctl.signal });
+      if(!res.ok) throw new Error('Write failed');
+      return res.json();
+    } catch(e) {
+      if (!unique || attempt >= 1) throw e;
+    } finally { clearTimeout(timer); }
+  }
 }
 
 async function uploadInvoice(base64, filename, mimeType) {
-  const res = await fetch(SCRIPT_URL, { method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ action: 'uploadFile', filename, mimeType, base64: base64.split(',')[1] }) });
-  const data = await res.json();
-  if(data.error) throw new Error(data.error);
-  if(!data.url) throw new Error('No URL returned from Drive');
-  return data.url;
+  /* 30s cap + one retry (2026-09-11): an upload stall used to hang «⏳ Saving...» forever —
+     no timeout at all — which is what pushed Khaled into re-tapping. A retried upload can at
+     worst leave an orphan file in Drive, never a twin expense. */
+  for (let attempt = 0; ; attempt++) {
+    const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 30000);
+    try {
+      const res = await fetch(SCRIPT_URL, { method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ action: 'uploadFile', filename, mimeType, base64: base64.split(',')[1] }), signal: ctl.signal });
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+      if(!data.url) throw new Error('No URL returned from Drive');
+      return data.url;
+    } catch(e) {
+      if (attempt >= 1) throw e;
+    } finally { clearTimeout(timer); }
+  }
 }
 
 let allRecurring = [];
@@ -2473,8 +2546,9 @@ async function saveRecurring() {
   if(window.editingRecurringId) { await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({ action:'deleteById', sheet:'Recurring', id: window.editingRecurringId }) }); allRecurring = allRecurring.filter(r=>r.id!==window.editingRecurringId); window.editingRecurringId = null; }
   const endType = document.getElementById('recEndType')?.value || 'continuous'; const endDate = endType === 'date' ? (document.getElementById('recEndDate')?.value || '') : '';
   const apartment = document.getElementById('recApt')?.value || '';   // col K — the Hub charges the named flat instead of splitting (Gardener, 2026-08-23)
-  const id = generateId(); const row = [id, desc, amount, day, group, category, paidBy, split, notes, endDate, apartment];
-  try { await writeToSheet('Recurring', [row]); allRecurring.push({ id, description:desc, amount, day, group, category, paidBy, split, notes, endDate, apartment }); closeAddRecurringModal(); renderRecurringPage(); checkRecurringDue(); showToast('✅ Recurring expense saved!'); }
+  const recFp = ['rec', desc, amount, day, group].join('|');
+  const id = stableId(recFp); const row = [id, desc, amount, day, group, category, paidBy, split, notes, endDate, apartment];
+  try { await writeToSheet('Recurring', [row], true); stableIdDone(recFp); allRecurring.push({ id, description:desc, amount, day, group, category, paidBy, split, notes, endDate, apartment }); closeAddRecurringModal(); renderRecurringPage(); checkRecurringDue(); showToast('✅ Recurring expense saved!'); }
   catch(e) { showToast('❌ Error: ' + e.message); }
 }
 
