@@ -1365,8 +1365,17 @@ async function setPendAmount(id, v){
 }
 
 async function confirmSelected() {
-  const items = pendList().filter(isSel).map(e => ({ id: e.id, payer: payerFor(e) }));
+  const selected = pendList().filter(isSel);
+  const items = selected.map(e => ({ id: e.id, payer: payerFor(e) }));
   if(!items.length){ showToast('Nothing selected'); return; }
+  /* ⏰ EARLY CONFIRM IS A DECISION, NOT AN ACCIDENT (Sarah 2026-09-12): the 28A rent card got
+     batch-confirmed days before the rent was actually paid, so the due-day reminder had nothing
+     to nag about. Recurring cards (deterministic ids) whose date is still ahead ask first. */
+  const todayY = ymdLocal();
+  const early = selected.filter(e => /^(RENT|R17B|SUB|CHM|AMAL|EMAD|GRDN)/.test(e.id) && e.date && e.date > todayY);
+  if(early.length && !confirm('في كروت لسه معادها ماجاش:\n' +
+      early.map(e => `• ${e.description} — مستحق ${e.date.slice(8,10)}/${e.date.slice(5,7)}`).join('\n') +
+      '\nمتأكدة إنها اتدفعت بدري؟')) return;
   const btn = document.getElementById('bulkConfirmBtn');
   if(btn){ btn.disabled = true; btn.textContent = `⏳ Confirming ${items.length}…`; }
   try {
