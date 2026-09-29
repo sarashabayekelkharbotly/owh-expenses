@@ -1212,6 +1212,16 @@ function payerFor(e){
   if (pendPayer[e.id]) return pendPayer[e.id];
   const m = String(e.notes||'').match(/payer:(Sarah|Khaled)/);
   if (m) return m[1];
+  /* Income guard (v3): an income row's pill IS the receiver, and picking wrong flips the whole
+     split (the Sept 17B: received-by defaulted to Sarah → 66k swing). So for income, never fall
+     to the blanket "Sarah" — read the receiver named in the note prose ("received by Khaled" /
+     "استلمها خالد") before anything else. The Hub already writes the payer: tag above; this is the
+     belt-and-braces for a token-less or hand-made income card. */
+  if (e.type === 'income') {
+    const notes = String(e.notes||'');
+    if (/received by\s*Khaled/i.test(notes) || /استلمها\s*خالد/.test(notes)) return 'Khaled';
+    if (/received by\s*Sarah/i.test(notes)  || /استلمتها\s*سارة/.test(notes)) return 'Sarah';
+  }
   if (e.shares && Number(e.shares.Khaled) > 0) return 'Khaled';
   if (e.shares && Number(e.shares.Sarah)  > 0) return 'Sarah';
   return e.source === 'dry-clean' ? 'Khaled' : 'Sarah';
@@ -1388,7 +1398,7 @@ async function confirmSelected() {
     (j.results||[]).forEach(r => {
       const e = allExpenses.find(x => x.id === r.id); if(!e) return;
       if(!r.ok) return;
-      const amt = Math.round(e.amount||0);
+      const amt = Math.round((e.amount||0) * 100) / 100;   // 2-dp, mirrors confirmBatch (v3) so the local split matches what the server wrote
       e.confirmed = 'confirmed';
       if(e.type === 'income'){
         // income: owner + / receiver − / OWH 0 — the payer pill means RECEIVER (17B: Khaled
