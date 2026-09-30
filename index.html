@@ -1493,6 +1493,24 @@ function calcGroupBalances(group) {
   return balances;
 }
 
+/* Settlement seal (2026-09-30). A settlement squares a group to zero AS OF its date; an entry
+   dated on/before that date which is later added, edited, deleted or un-confirmed silently pulls
+   that already-settled period back out of balance. That is exactly what happened in August — the
+   Emad-16k row was deleted AFTER the 28 Aug settlement, stranding Khaled's payout by 10,666.67.
+   lastSettlementDate = the newest payment date the app holds for the group; sealOk WARNS before any
+   such change and never forbids (you may genuinely need to — e.g. removing a wrong entry — you just
+   can't do it without seeing that a closed period will move). ISO dates compare as strings. */
+function lastSettlementDate(groupName){
+  let d='';
+  (allExpenses||[]).forEach(function(e){ if(e.type==='payment' && e.group===groupName){ const ed=String(e.date||''); if(ed>d) d=ed; } });
+  return d;
+}
+function sealOk(groupName, date, action){
+  const seal=lastSettlementDate(groupName);
+  if(!seal || String(date||'')>seal) return true;
+  return confirm('⚠️ '+action+' an entry dated '+date+' — on or before your last settlement for '+groupName+' ('+seal+').\n\nThis will pull an already-settled period out of balance. Continue?');
+}
+
 function renderExpItem(e) {
   const shares = e.shares || {};
   const personalFor = shares['_personal'] || '';
@@ -2018,6 +2036,9 @@ async function saveEntry() {
     if(splitType === 'custom') { const totalSplit = currentGroupMembers.reduce((s,m) => s + (parseFloat(document.getElementById('split_'+m)?.value||0)), 0); if(totalSplit > 0 && Math.abs(totalSplit - amount) > 1) { showToast(`⚠️ Split total must equal expense amount`); return; } }
   }
   if(entryType==='income') { const apt = document.getElementById('addApt').value; category = apt==='VW1' ? 'Owner prepayment' : `Rent - ${apt}`; }   // VW1: the owner's money in, never rent
+  // Settlement seal — a new/edited entry dated behind this group's last settlement warns first.
+  // Payments are the seal itself, so they're exempt (a new settlement is dated now, anyway).
+  if(entryType !== 'payment' && !sealOk(group, date, window.editingExpenseId ? 'Editing' : 'Adding')) return;
   const saveBtn = document.querySelector('#page-add .btn-primary');
   if(saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Saving...'; }
   showToast('⏳ Saving...');
@@ -2216,6 +2237,7 @@ function closeExpModal() { document.getElementById('expenseModal').classList.rem
    Manual entries are excluded: they were born confirmed by the person who typed them. */
 async function unconfirmEntry(id){
   const e = allExpenses.find(x=>x.id===id); if(!e) return;
+  if(!sealOk(e.group, e.date, 'Un-confirming')) return;   // settlement seal
   if(!confirm(`رجّع "${e.description}" (${Math.round(e.amount)} EGP) لقائمة الانتظار؟\nالدفعة هتتشال من الحسابات لحد ما تتأكد تاني.`)) return;
   try {
     const upd = (col,value) => fetch(SCRIPT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},
@@ -2230,7 +2252,9 @@ async function unconfirmEntry(id){
 async function deleteExpense(id) {
   if(!confirm('Delete this expense? This cannot be undone.')) return;
   const idx = allExpenses.findIndex(e=>e.id===id); if(idx===-1) return;
-  const expToDelete = allExpenses[idx]; if(expToDelete) sendDeleteNotification(expToDelete.description, expToDelete.amount, expToDelete.group);
+  const expToDelete = allExpenses[idx];
+  if(expToDelete && !sealOk(expToDelete.group, expToDelete.date, 'Deleting')) return;   // settlement seal
+  if(expToDelete) sendDeleteNotification(expToDelete.description, expToDelete.amount, expToDelete.group);
   try {
     showToast('⏳ Deleting...');
     await fetch(SCRIPT_URL, { method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ action: 'deleteById', sheet: 'Expenses', id: id }) });
