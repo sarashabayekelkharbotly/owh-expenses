@@ -2142,9 +2142,9 @@ function openSettleModal(groupId) {
       html += `<div style="background:#fff3e0;border-radius:10px;padding:12px;margin-bottom:8px">
         <div style="font-size:14px;font-weight:700;margin-bottom:8px">${s.from} → ${s.to}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-          <input type="number" id="settleAmount_${i}" value="${Math.round(s.amount)}"
+          <input type="number" id="settleAmount_${i}" value="${Math.round(s.amount*100)/100}" step="0.01"
             style="flex:1;padding:8px 12px;border:1.5px solid #e8a838;border-radius:8px;font-family:Cairo,sans-serif;font-size:16px;font-weight:900;color:#e8a838;background:white;outline:none;text-align:center"
-            inputmode="numeric">
+            inputmode="decimal">
           <span style="font-size:13px;font-weight:700;color:var(--text2)">EGP</span>
         </div>
         <button class="btn btn-primary" style="padding:8px 14px;font-size:12px" onclick="recordSingleSettlement('${groupId}', '${s.from}', '${s.to}', ${i})">✅ Record</button>
