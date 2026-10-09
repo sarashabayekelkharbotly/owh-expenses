@@ -435,6 +435,17 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   </div>
 </div>
 
+<div class="modal-overlay" id="splitModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="modal-title">Edit split</div>
+      <button onclick="closeSplit()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
+    </div>
+    <div id="splitContent"></div>
+  </div>
+</div>
+
 <div class="page" id="page-search">
   <div class="card" style="margin-bottom:12px">
     <input type="text" class="form-input" id="searchQuery" placeholder="🔍 Search description, category..." oninput="runSearch()" style="margin-bottom:10px">
@@ -1303,18 +1314,71 @@ function pendCard(e){
                <div style="font-size:10px;color:var(--text3);margin-top:2px">EGP — عدّلي السعر لو مختلف</div></div>`
           : `<div style="font-size:14px;font-weight:900;color:var(--primary);flex-shrink:0">${Math.round(e.amount).toLocaleString()} EGP</div>`}
       </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
         <span style="font-size:11px;color:var(--text2)">${e.type==='income'?'Received by:':'Paid by:'}</span>
-        <div class="pills" style="margin:0">
+        ${(e.type!=='income' && pendSplit[e.id])
+          ? `<span style="font-size:11px;font-weight:700;color:var(--primary)">✎ custom split</span>`
+          : `<div class="pills" style="margin:0">
           <button class="pill ${cur==='Khaled'?'active':''}" onclick="setPendPayer('${e.id}','Khaled',this)">Khaled</button>
           <button class="pill ${cur==='Sarah'?'active':''}" onclick="setPendPayer('${e.id}','Sarah',this)">Sarah</button>
-        </div>
+        </div>`}
+        ${e.type!=='income' ? `<button onclick="openSplit('${e.id}')" title="قسّم البطاقة على الأفراد قبل التأكيد — المبلغ من المصدر"
+          style="background:#eef3ff;border:1px solid #c7d7f5;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;color:#4a7fb5;cursor:pointer;font-family:'Cairo',sans-serif;flex-shrink:0">✎ split</button>` : ''}
         <button onclick="deletePending('${e.id}')" title="للصفوف المكررة أو الغلط فقط — التأكيد العادي من زرار Confirm"
           style="margin-inline-start:auto;background:#fdecec;border:1px solid #f0b9b9;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;color:#cc5f5f;cursor:pointer;font-family:'Cairo',sans-serif;flex-shrink:0">🗑️ حذف</button>
       </div>
     </div>`;
 }
 
+/* CUSTOM SPLIT ON A PENDING CARD (Sarah 2026-10-09: "edit the split — the amount always comes from
+   the source"). A pending row carries NO split (rule 1); this only sets the INTENDED allocation,
+   held client-side until confirm, which writes it to K/L/M. Amount is read-only. Model = the Add
+   form's: one PAYER (+amount) and a BEARING allocation across members (−), net always sums to zero.
+   Absent → the card confirms on its default payer exactly as before. Income cards keep the receiver
+   pill — their split is owner/receiver, not a cost allocation. */
+let pendSplit = {};                               // id -> { paid, bear:{member:amt} }
+let sp = { id:null, members:[], amount:0, desc:'', paid:'', bear:{} };
+function groupMembersOf(e){ const g=allGroups.find(x=>x.name===e.group); return (g&&g.members)||['Sarah','Khaled','OWH']; }
+/* the net K/L/M a custom split will write: payer is owed +amount, each member owes what it bears */
+function netFromSplit(e){ const s=pendSplit[e.id]; const amt=Math.round((e.amount||0)*100)/100, r={Sarah:0,Khaled:0,OWH:0};
+  ['Sarah','Khaled','OWH'].forEach(m => r[m] = (s.paid===m?amt:0) - (Number(s.bear[m])||0)); return r; }
+function openSplit(id){
+  const e = allExpenses.find(x=>x.id===id); if(!e || !isPend(e) || e.type==='income') return;
+  const members = groupMembersOf(e), amount = Math.round((e.amount||0)*100)/100, ex = pendSplit[id];
+  sp = { id, members, amount, desc:e.description||'',
+         paid: ex ? ex.paid : (members.indexOf(payerFor(e))>=0 ? payerFor(e) : members.filter(m=>m!=='OWH')[0]),
+         bear: {} };
+  members.forEach(m => sp.bear[m] = ex ? (Number(ex.bear[m])||0) : (m==='OWH'?amount:0));
+  renderSplit(); document.getElementById('splitModal').classList.add('open');
+}
+function closeSplit(){ document.getElementById('splitModal').classList.remove('open'); }
+function spSetPaid(m){ sp.paid=m; renderSplit(); }
+function spBearInput(m,v){ sp.bear[m]=parseFloat(v)||0; renderSplit(); }
+function spPreset(k){ if(k==='owh') sp.members.forEach(m=>sp.bear[m]= m==='OWH'?sp.amount:0);
+  else if(k==='equal'){ const s=Math.round((sp.amount/sp.members.length)*100)/100; sp.members.forEach(m=>sp.bear[m]=s); } renderSplit(); }
+function spBearSum(){ return sp.members.reduce((a,m)=>a+(parseFloat(sp.bear[m])||0),0); }
+function spMoney(n){ return (n<0?'-':'')+Math.abs(Math.round(n)).toLocaleString('en-US'); }
+function renderSplit(){
+  const bs=Math.round(spBearSum()*100)/100, ok=Math.abs(bs-sp.amount)<0.5;
+  const net={}; sp.members.forEach(m=> net[m]=(sp.paid===m?sp.amount:0)-(Number(sp.bear[m])||0));
+  let h = '<div style="font-size:13px;font-weight:700;margin-bottom:2px">'+(sp.desc||'')+'</div>'+
+    '<div style="font-size:12px;color:var(--text2);margin-bottom:12px">Amount (from source): <b>'+sp.amount.toLocaleString()+' EGP</b> — not editable</div>'+
+    '<div style="font-size:11px;color:var(--text2);margin-bottom:4px">Who paid (fronted the cash)</div><div class="pills" style="margin-bottom:12px">'+
+    sp.members.filter(m=>m!=='OWH').map(m=>'<button class="pill '+(sp.paid===m?'active':'')+'" onclick="spSetPaid(\''+m+'\')">'+m+'</button>').join('')+'</div>'+
+    '<div style="font-size:11px;color:var(--text2);margin-bottom:4px">Who bears it — must total '+sp.amount.toLocaleString()+' EGP</div>'+
+    '<div class="rowbtns" style="margin-bottom:6px"><button class="pill" onclick="spPreset(\'owh\')">OWH bears all</button><button class="pill" onclick="spPreset(\'equal\')">Equal</button></div>'+
+    sp.members.map(m=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="width:60px;font-size:12px">'+m+'</span><input type="number" value="'+Math.round(sp.bear[m]||0)+'" inputmode="decimal" oninput="spBearInput(\''+m+'\',this.value)" style="flex:1;padding:6px 8px;border:1.5px solid var(--border,#ddd);border-radius:8px;font-size:14px;text-align:center"></div>').join('')+
+    '<div style="font-size:11px;margin:6px 0;color:'+(ok?'#2e7d32':'#c62828')+'">Bears total: '+spMoney(bs)+' / '+sp.amount.toLocaleString()+' '+(ok?'✓':'— must match the amount')+'</div>'+
+    '<div style="background:var(--surface2,#faf7f4);border-radius:8px;padding:8px;font-size:12px;margin:8px 0">'+
+    sp.members.map(m=>{const v=net[m];return '<div style="display:flex;justify-content:space-between"><span>'+m+'</span><span style="font-weight:700;color:'+(v>0?'#2e7d32':v<0?'#c62828':'var(--text3)')+'">'+(v>0?'owed ':v<0?'owes ':'')+spMoney(Math.abs(v))+' EGP</span></div>';}).join('')+'</div>'+
+    '<div class="rowbtns" style="margin-top:4px"><button class="btn btn-primary" '+(ok?'':'disabled style="opacity:.5"')+' onclick="spApply()">Apply split</button>'+
+    (pendSplit[sp.id]?'<button class="btn sec" onclick="spClear()">Use default</button>':'')+'</div>';
+  document.getElementById('splitContent').innerHTML = h;
+}
+function spApply(){ if(Math.abs(spBearSum()-sp.amount)>=0.5){ showToast('The split must total the amount'); return; }
+  pendSplit[sp.id] = { paid: sp.paid, bear: Object.assign({}, sp.bear) };
+  closeSplit(); renderHome(); showToast('✅ Split set — it lands when you confirm'); }
+function spClear(){ delete pendSplit[sp.id]; closeSplit(); renderHome(); }
 function pendToggle(id){ pendSel[id] = (pendSel[id] === false); renderHome(); }   // unticked → ticked, else untick
 function pendSelect(what){
   pendList().forEach(e => {
@@ -1376,7 +1440,9 @@ async function setPendAmount(id, v){
 
 async function confirmSelected() {
   const selected = pendList().filter(isSel);
-  const items = selected.map(e => ({ id: e.id, payer: payerFor(e) }));
+  const items = selected.map(e => { const it = { id: e.id, payer: payerFor(e) };
+    if(e.type!=='income' && pendSplit[e.id]) it.shares = netFromSplit(e);   // a set custom split overrides the payer default
+    return it; });
   if(!items.length){ showToast('Nothing selected'); return; }
   /* ⏰ EARLY CONFIRM IS A DECISION, NOT AN ACCIDENT (Sarah 2026-09-12): the 28A rent card got
      batch-confirmed days before the rent was actually paid, so the due-day reminder had nothing
@@ -1400,7 +1466,10 @@ async function confirmSelected() {
       if(!r.ok) return;
       const amt = Math.round((e.amount||0) * 100) / 100;   // 2-dp, mirrors confirmBatch (v3) so the local split matches what the server wrote
       e.confirmed = 'confirmed';
-      if(e.type === 'income'){
+      if(r.shares){   // the server now echoes the exact split it wrote (covers custom splits too)
+        e.shares = { Sarah: r.shares.Sarah||0, Khaled: r.shares.Khaled||0, OWH: r.shares.OWH||0 };
+        delete pendSplit[r.id];
+      } else if(e.type === 'income'){
         // income: owner + / receiver − / OWH 0 — the payer pill means RECEIVER (17B: Khaled
         // receives Sarah's rent as messenger). Mirrors confirmBatch's income branch.
         const recvS = r.payer === 'Sarah';
