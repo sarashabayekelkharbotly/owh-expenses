@@ -654,7 +654,20 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
 /* LOCAL date, never toISOString: UTC lags Egypt — after midnight the app showed yesterday and
    filed new expenses under it (same bug family as the Control app fix). */
 function ymdLocal(d){ d = d || new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxm8PY858JfFz3H3AsFfqrdk96oGcVstiCF7TnO1q_E16GbWGEh-UTChz_Cq1cmMTTejQ/exec';
+/* ENGINE SWITCH (Phase 2, Sarah 2026-10-17): WeShare on Supabase speaks the very same calls as the Apps Script, so only
+   the address changes. ?engine=supa opens the new engine (remembered on this device; ?engine=sheet goes back).
+   The new engine signs in with the HUB's username + password and keeps its sign-in under its own key. */
+const WS_APPS_URL = 'https://script.google.com/macros/s/AKfycbxm8PY858JfFz3H3AsFfqrdk96oGcVstiCF7TnO1q_E16GbWGEh-UTChz_Cq1cmMTTejQ/exec';
+const WS_ENGINE_URL = 'https://geszrsrdqxwtihrqzxiu.supabase.co/functions/v1/weshare';
+const WS_ON_ENGINE = (function () {
+  try {
+    const q = new URLSearchParams(location.search).get('engine');
+    if (q === 'supa') localStorage.setItem('ws_engine', 'supa');
+    if (q === 'sheet') localStorage.removeItem('ws_engine');
+    return localStorage.getItem('ws_engine') === 'supa';
+  } catch (e) { return false; }
+})();
+const SCRIPT_URL = WS_ON_ENGINE ? WS_ENGINE_URL : WS_APPS_URL;
 
 /* ============================================================
    SESSION TOKEN ON EVERY BACKEND CALL — installed once, here.
@@ -880,7 +893,7 @@ function onAuthReady(session) {
      right field names, so it could be walked straight past).
      The dry-clean script's own 'Users' tab and auth_login are left untouched, so dry-clean
      and inventory keep working exactly as before. */
-  var SESS_KEY = 'owh_session';
+  var SESS_KEY = WS_ON_ENGINE ? 'owh_session_hub' : 'owh_session';   // the engine's sign-in is a Hub sign-in — never mixed with the old one
 
   function getSession(){
     /* Requires a token now. A fabricated localStorage entry gets rejected by the server on
@@ -1100,12 +1113,12 @@ function wsBanner(msg, warn) {
 }
 function wsAge(ts){ const m = Math.round((Date.now()-ts)/60000); return m<1?'الآن':m<60?`منذ ${m} دقيقة`:`منذ ${Math.round(m/60)} ساعة`; }
 function saveWsCache() {
-  try { localStorage.setItem('wsDataCache', JSON.stringify({ allExpenses, allGroups, allMonthlyTotals, allRecurring,
+  try { localStorage.setItem(WS_ON_ENGINE ? 'wsDataCacheEngine' : 'wsDataCache', JSON.stringify({ allExpenses, allGroups, allMonthlyTotals, allRecurring,
     customCategories, groupBalanceData: window.groupBalanceData, totalRowsInSheet, ts: Date.now() })); } catch(e) {}
 }
 function hydrateWsCache() {
   try {
-    const c = JSON.parse(localStorage.getItem('wsDataCache') || 'null');
+    const c = JSON.parse(localStorage.getItem(WS_ON_ENGINE ? 'wsDataCacheEngine' : 'wsDataCache') || 'null');
     if (!c || !c.ts || !(c.allExpenses||[]).length) return false;
     allExpenses = c.allExpenses; allGroups = c.allGroups || [...DEFAULT_GROUPS];
     allMonthlyTotals = c.allMonthlyTotals || []; allRecurring = c.allRecurring || [];
@@ -1187,6 +1200,7 @@ async function loadAllData(force) {
     populateGroupSelect(); populateGroupFilters();
     renderRecurringPage(); checkRecurringDue();
     wsLoadedAt = Date.now(); saveWsCache(); wsBanner(null);   // fresh data on screen — the age banner comes down
+    if (payload.trial) wsBanner('🧪 تجربة WeShare الجديدة — أي حفظ هنا للتجربة فقط ولن يُسجَّل فعلاً');   // the engine is not the master yet
     showToast('✅ Updated');
   } catch(e) {
     // the cached view stays up; the banner NAMES the cause instead of a vanishing toast
