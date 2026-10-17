@@ -698,6 +698,9 @@ const SCRIPT_URL = WS_ON_ENGINE ? WS_ENGINE_URL : WS_APPS_URL;
         // peek at a clone so the caller still gets an unread body
         res.clone().json().then(function (j) {
           if (j && j.ok === false && j.code === 'AUTH' && typeof window.wsSessionExpired === 'function') window.wsSessionExpired();
+          // the switch (and its rollback) reach every open page by themselves: the old backend says MOVED, the new says ENGINE_OFF
+          if (j && j.code === 'MOVED' && !WS_ON_ENGINE && !window.__wsHop) { window.__wsHop = 1; try { localStorage.setItem('ws_engine', 'supa'); } catch (e) {} location.replace(location.pathname); }
+          if (j && j.code === 'ENGINE_OFF' && WS_ON_ENGINE && !window.__wsHop) { window.__wsHop = 1; try { localStorage.removeItem('ws_engine'); } catch (e) {} location.replace(location.pathname); }
         }).catch(function () {});
       }
       return res;
