@@ -717,14 +717,30 @@ const SCRIPT_URL = WS_ON_ENGINE ? WS_ENGINE_URL : WS_APPS_URL;
    This page is PUBLIC, so it holds NO secret: it asks WeShare's own backend to do the sync, and that
    backend (private Apps Script source) holds the Hub's SYNC_TOKEN. A token pasted into this file
    would be readable by anyone who opens the page. */
+/* 2026-10-27: the sync starts on Supabase and answers at once (~15 s, steps side by side); the button counts the steps */
 async function syncAll(){
-  const btn=document.getElementById('weSyncBtn'); if(btn){ btn.disabled=true; btn.textContent='⏳ Syncing…'; }
+  const btn=document.getElementById('weSyncBtn'); if(btn){ btn.disabled=true; btn.textContent='⏳ Starting…'; }
+  const reset=()=>{ const b=document.getElementById('weSyncBtn'); if(b){ b.disabled=false; b.textContent='🔄 Sync all'; } };
+  const post=async(action)=>{ const r=await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action})}); return r.json(); };
   try{
-    const r=await fetch(SCRIPT_URL, {method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify({action:'hub_sync'})});
-    const j=await r.json();
-    if(j&&j.ok){ showToast('✅ Synced — refreshing'); await loadAllData(); }   // reload so new pending entries show
-    else { showToast('❌ Sync error'); if(btn){btn.disabled=false;btn.textContent='🔄 Sync all';} }
-  }catch(e){ showToast('❌ Sync failed'); if(btn){btn.disabled=false;btn.textContent='🔄 Sync all';} }
+    let j=await post('hub_sync');
+    if(!(j&&j.ok)){ showToast('❌ Sync error'+(j&&j.error?': '+j.error:'')); reset(); return; }
+    if(!(j.started||j.already)){ showToast('✅ Synced — refreshing'); await loadAllData(); reset(); return; }   // the old path answered with the whole result
+    const t0=Date.now();
+    while(Date.now()-t0<5*60000){
+      await new Promise(res=>setTimeout(res,1500));
+      let st; try{ st=await post('hub_sync_status'); }catch(e){ continue; }
+      const p=(st&&st.progress)||{}, order=p.order||[], state=p.state||{};
+      const done=order.filter(n=>state[n]==='done'||state[n]==='error').length;
+      const b=document.getElementById('weSyncBtn'); if(b) b.textContent='⏳ Syncing… '+done+'/'+order.length;
+      if(st&&st.ok&&!st.running&&p.end){
+        const r=p.result||{}, errs=r.errors||[];
+        showToast(errs.length?('⚠️ Synced with '+errs.length+' failed step(s)'):('✅ Synced in '+Math.round((r.ms||0)/1000)+' s — refreshing'));
+        await loadAllData(true); reset(); return;   // reload so new pending entries show
+      }
+    }
+    showToast('⏳ Still syncing — it finishes in the background'); reset();
+  }catch(e){ showToast('❌ Sync failed'); reset(); }
 }
 
 let allExpenses = [];
