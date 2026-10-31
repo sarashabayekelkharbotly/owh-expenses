@@ -2176,16 +2176,23 @@ async function saveEntry() {
   // Same form re-tapped (or re-saved after a refresh) = same id, so the server can recognize
   // attempt №2 of the same entry. Released on success — see stableId().
   const saveFp = ['exp', date, desc, amount, loggedBy, entryType].join('|');
-  const id = stableId(saveFp);
+  const editId = window.editingExpenseId || null;   // an edit keeps the card's own id (2026-10-31) — a new id made the Hub re-create its automatic cards
+  const id = editId || stableId(saveFp);
   const personalTag = shares['_personal'] ? `[Personal: ${shares['_personal']}]` : '';
   const notesWithPersonal = [notes, personalTag, currencyNote].filter(Boolean).join(' ');
   // O=Apartment · P=Confirmed · Q=Source (new cols). Apartment only for income or Airbnb-Monthly expenses.
   const apartment = (entryType === 'income' || group === 'Airbnb Monthly') ? (document.getElementById('addApt')?.value || '') : '';
   const row = [id, group, date, desc, category, amount, 'EGP', entryType, notesWithPersonal, invoiceUrl, shares['Sarah']||0, shares['Khaled']||0, shares['OWH']||0, loggedBy, apartment, 'confirmed', 'manual'];
   try {
-    await writeToSheet('Expenses', [row], true);
+    let replaced = false;
+    if (editId) {
+      try { const rr = await fetch(SCRIPT_URL, { method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ action: 'replaceById', sheet: 'Expenses', id: editId, row }) });
+            const jr = await rr.json(); replaced = !!(jr && jr.success); } catch(e) { replaced = false; }
+    }
+    if (!replaced) { if (editId) row[0] = stableId(saveFp); await writeToSheet('Expenses', [row], true); }   // a new entry — or the old backend's two-step edit
     stableIdDone(saveFp);
-    allExpenses.unshift({ id, group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl, shares:{ Sarah: shares['Sarah']||0, Khaled: shares['Khaled']||0, OWH: shares['OWH']||0 }, loggedBy, apartment });
+    if (replaced) { const oi = allExpenses.findIndex(e=>e.id===editId); if (oi > -1) allExpenses.splice(oi, 1); }
+    allExpenses.unshift({ id: row[0], group, date, description:desc, category, amount, currency:'EGP', type:entryType, notes, invoiceUrl, shares:{ Sarah: shares['Sarah']||0, Khaled: shares['Khaled']||0, OWH: shares['OWH']||0 }, loggedBy, apartment });
     sendExpenseNotification(desc, amount, group, loggedBy, entryType);
     const isRecurring = document.getElementById('addIsRecurring')?.checked;
     if(isRecurring) {
@@ -2197,8 +2204,8 @@ async function saveEntry() {
     }
     if(window.editingExpenseId) {
       sendEditNotification(desc, amount, group, loggedBy);
-      await fetch(SCRIPT_URL, { method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ action: 'deleteById', sheet: 'Expenses', id: window.editingExpenseId }) });
-      const oldIdx = allExpenses.findIndex(e=>e.id===window.editingExpenseId);
+      if (!replaced) await fetch(SCRIPT_URL, { method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify({ action: 'deleteById', sheet: 'Expenses', id: window.editingExpenseId }) });
+      const oldIdx = replaced ? -1 : allExpenses.findIndex(e=>e.id===window.editingExpenseId);
       if(oldIdx > -1) allExpenses.splice(oldIdx, 1);
       window.editingExpenseId = null;
       const sb = document.querySelector('#page-add .btn-primary'); if(sb) sb.textContent = '💾 Save';
