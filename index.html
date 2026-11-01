@@ -411,6 +411,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
   <div class="section-title">Groups</div>
   <div id="groupsList"></div>
   <button class="btn btn-outline" onclick="openAddGroupModal()" style="width:100%;justify-content:center;margin-top:4px">➕ Add New Group</button>
+  <button class="btn btn-outline" onclick="openXlsModal()" style="width:100%;justify-content:center;margin-top:8px">⬇ Export to Excel</button>
 </div>
 
 <div class="modal-overlay" id="expenseModal">
@@ -623,6 +624,24 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--tex
       <button class="btn btn-outline btn-sm" onclick="setPresetYear(1)" style="justify-content:center">Last year</button>
     </div>
     <button class="btn btn-primary" onclick="loadDateRange()">📥 Load Data</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="xlsModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div class="modal-title">⬇ Export to Excel</div>
+      <button onclick="closeXlsModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text3)">✕</button>
+    </div>
+    <div class="form-group"><label class="form-label">Group</label><select class="form-input" id="xlsGroup"></select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div class="form-group" style="margin:0"><label class="form-label">From</label><input type="date" class="form-input" id="xlsFrom"></div>
+      <div class="form-group" style="margin:0"><label class="form-label">To</label><input type="date" class="form-input" id="xlsTo"></div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:14px">One tab per group with the opening balance, every confirmed entry, running balances and a zero check; plus Categories and Balances tabs. All totals are live formulas. Pending cards are left out.</div>
+    <button class="btn btn-primary" id="xlsBtn" onclick="wsExcel()">⬇ Download</button>
+    <div id="xlsMsg" style="font-size:12px;color:var(--text3);margin-top:8px;text-align:center"></div>
   </div>
 </div>
 
@@ -1069,6 +1088,134 @@ function parseSheetDate(val) {
 }
 
 function openDateRangeModal() { document.getElementById('dateRangeModal').classList.add('open'); }
+/* ⬇ EXCEL EXPORT (Sarah 2026-11-02: "like the excel sheet i used to see in the drive, with formulas"). The old Expenses tab + GroupBalances,
+   for a date range: per group — an opening balance (every confirmed share before From), each entry with its shares, a running balance per
+   member (=row above + share), a check (=shares sum, always 0), totals and the closing balance; a Categories tab (SUMIFS on the group tabs)
+   and a Balances tab (each group's closing, by formula). Signs as the app: + is owed, − owes. Pending cards are not in the group yet → out. */
+function openXlsModal() {
+  const sel = document.getElementById('xlsGroup'), gs = (allGroups && allGroups.length ? allGroups : DEFAULT_GROUPS);
+  sel.innerHTML = '<option value="">All groups</option>' + gs.map(g => `<option value="${String(g.name).replace(/"/g,'&quot;')}">${g.name}</option>`).join('');
+  const d = new Date(), y = d.getFullYear(), m = d.getMonth();
+  const f = document.getElementById('xlsFrom'), t = document.getElementById('xlsTo');
+  if (!f.value) f.value = `${y}-${String(m+1).padStart(2,'0')}-01`;
+  if (!t.value) t.value = d.toISOString().slice(0,10);
+  document.getElementById('xlsMsg').textContent = '';
+  document.getElementById('xlsModal').classList.add('open');
+}
+function closeXlsModal() { document.getElementById('xlsModal').classList.remove('open'); }
+function xlsLib(cb) { if (window.ExcelJS) return cb(true); const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+  sc.onload = () => cb(!!window.ExcelJS); sc.onerror = () => cb(false); document.head.appendChild(sc); }
+function xlsCol(n) { let s = ''; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; }
+async function wsExcel() {
+  const msg = document.getElementById('xlsMsg'), btn = document.getElementById('xlsBtn');
+  const grp = document.getElementById('xlsGroup').value, from = document.getElementById('xlsFrom').value, to = document.getElementById('xlsTo').value;
+  if (!from || !to) { msg.textContent = '⚠️ Pick both dates'; return; }
+  if (from > to) { msg.textContent = '⚠️ From must be before To'; return; }
+  btn.disabled = true; msg.textContent = '⏳ Reading the full ledger…';
+  try {
+    const eRows = await fetchSheet('Expenses!A2:Q20000');
+    const all = eRows.filter(r => r[0] && r[0] !== 'DELETED').map(r => ({ id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'', category:r[4]||'',
+      amount:parseFloat(r[5]||0)||0, type:r[7]||'expense', notes:r[8]||'', shares:{ Sarah:parseFloat(r[10]||0)||0, Khaled:parseFloat(r[11]||0)||0, OWH:parseFloat(r[12]||0)||0 },
+      loggedBy:r[13]||'', confirmed:r[15]||'' })).filter(e => !isPend(e) && e.date);
+    if (all.length && eRows.length && eRows[0].length < 16) throw new Error('the server did not send the Confirmed column — try again in a minute');
+    const gs = (allGroups && allGroups.length ? allGroups : DEFAULT_GROUPS).filter(g => !grp || g.name === grp);
+    msg.textContent = '⏳ Building the workbook…';
+    await new Promise((res, rej) => xlsLib(ok => ok ? res() : rej(new Error('could not load the Excel library'))));
+    const wb = new ExcelJS.Workbook(), NUM = '#,##0.00;[Red]-#,##0.00', bold = { bold: true }, head = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFEFE7E7' } };
+    const MEMBERS = ['Sarah','Khaled','OWH'], used = {}, sheetName = (n) => { let b = String(n).replace(/[\\\/\?\*\[\]:]/g,'-').slice(0,28) || 'Group', s = b, i = 2; while (used[s.toLowerCase()] || /^(categories|balances)$/i.test(s)) s = b + ' ' + (i++); used[s.toLowerCase()] = 1; return s; };
+    const dt = (d) => new Date(d + 'T12:00:00Z'), dayBefore = (d) => { const x = dt(d); x.setUTCDate(x.getUTCDate() - 1); return x; };
+    const r2 = (x) => Math.round(x * 100) / 100, q = (n) => "'" + n.replace(/'/g, "''") + "'";
+    const balWs = wb.addWorksheet('Balances'), catWs = wb.addWorksheet('Categories');
+    const tabs = [];   // { name, members, first, last, closeRow, shareCol:{m:colLetter} }
+    gs.forEach(g => {
+      const mem = MEMBERS.filter(m => (g.members || MEMBERS).indexOf(m) > -1);
+      const rows = all.filter(e => e.group === g.name);
+      const open = {}; mem.forEach(m => { open[m] = r2(rows.filter(e => e.date < from).reduce((s, e) => s + (e.shares[m] || 0), 0)); });
+      const inR = rows.filter(e => e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+      const name = sheetName(g.name), ws = wb.addWorksheet(name);
+      const fixed = [['Date',11],['Description',32],['Category',16],['Type',9],['Amount',12],['Notes',30],['Logged by',10]];
+      const nF = fixed.length, cShare = (i) => nF + 1 + i, cCheck = nF + mem.length + 1, cBal = (i) => cCheck + 1 + i, last = cCheck + mem.length;
+      ws.getCell(1, 1).value = g.name + ' — ' + from + ' to ' + to; ws.getCell(1, 1).font = { bold: true, size: 13 };
+      ws.getCell(2, 1).value = 'Shares: + is owed, − owes. Check = sum of the shares (always 0). Balance = row above + this share.'; ws.getCell(2, 1).font = { italic: true, color: { argb: 'FF888888' } };
+      const hdr = fixed.map(c => c[0]).concat(mem.map(m => m + ' share'), ['Check'], mem.map(m => m + ' balance'));
+      ws.getRow(4).values = hdr; ws.getRow(4).font = bold; for (let c = 1; c <= last; c++) ws.getCell(4, c).fill = head;
+      fixed.forEach((c, i) => { ws.getColumn(i + 1).width = c[1]; }); for (let c = nF + 1; c <= last; c++) ws.getColumn(c).width = 14;
+      ws.views = [{ state: 'frozen', ySplit: 4 }];
+      // the opening balance — values (everything before From), the start of the running balance
+      const oR = 5; ws.getCell(oR, 1).value = dayBefore(from); ws.getCell(oR, 2).value = 'Opening balance'; ws.getRow(oR).font = bold;
+      mem.forEach((m, i) => { ws.getCell(oR, cBal(i)).value = open[m]; });
+      ws.getCell(oR, cCheck).value = { formula: mem.map((m, i) => xlsCol(cBal(i)) + oR).join('+'), result: r2(mem.reduce((s, m) => s + open[m], 0)) };
+      const run = Object.assign({}, open);
+      inR.forEach((e, k) => {
+        const R = oR + 1 + k;
+        [dt(e.date), e.description, e.category, e.type, e.amount, e.notes, e.loggedBy].forEach((v, i) => { ws.getCell(R, i + 1).value = v; });
+        mem.forEach((m, i) => { ws.getCell(R, cShare(i)).value = r2(e.shares[m] || 0); });
+        ws.getCell(R, cCheck).value = { formula: 'ROUND(' + mem.map((m, i) => xlsCol(cShare(i)) + R).join('+') + ',2)', result: r2(mem.reduce((s, m) => s + (e.shares[m] || 0), 0)) };
+        mem.forEach((m, i) => { run[m] = r2(run[m] + (e.shares[m] || 0)); ws.getCell(R, cBal(i)).value = { formula: xlsCol(cBal(i)) + (R - 1) + '+' + xlsCol(cShare(i)) + R, result: run[m] }; });
+        if (e.type === 'payment') ws.getRow(R).font = { color: { argb: 'FF2F6F4F' } };
+      });
+      const f1 = oR + 1, lN = oR + inR.length, has = inR.length > 0, tR = lN + 2, cR = tR + 1;
+      const sumF = (col) => has ? { formula: 'SUM(' + col + f1 + ':' + col + lN + ')', result: 0 } : 0;
+      const E = xlsCol(5), D = xlsCol(4), rng = (c) => q(name) + '!$' + c + '$' + f1 + ':$' + c + '$' + Math.max(lN, f1);
+      ws.getCell(tR, 2).value = 'Total for the period (' + inR.length + ' entries)'; ws.getRow(tR).font = bold;
+      mem.forEach((m, i) => { const c = xlsCol(cShare(i)); ws.getCell(tR, cShare(i)).value = has ? { formula: 'SUM(' + c + f1 + ':' + c + lN + ')', result: r2(inR.reduce((s, e) => s + (e.shares[m] || 0), 0)) } : 0; });
+      ws.getCell(tR, cCheck).value = has ? { formula: 'ROUND(SUM(' + xlsCol(cCheck) + f1 + ':' + xlsCol(cCheck) + lN + '),2)', result: 0 } : 0;
+      ws.getCell(tR + 3, 2).value = 'Expenses'; ws.getCell(tR + 3, 5).value = has ? { formula: 'SUMIFS(' + E + f1 + ':' + E + lN + ',' + D + f1 + ':' + D + lN + ',"expense")', result: r2(inR.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0)) } : 0;
+      ws.getCell(tR + 4, 2).value = 'Income';   ws.getCell(tR + 4, 5).value = has ? { formula: 'SUMIFS(' + E + f1 + ':' + E + lN + ',' + D + f1 + ':' + D + lN + ',"income")', result: r2(inR.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0)) } : 0;
+      ws.getCell(tR + 5, 2).value = 'Payments / settlements'; ws.getCell(tR + 5, 5).value = has ? { formula: 'SUMIFS(' + E + f1 + ':' + E + lN + ',' + D + f1 + ':' + D + lN + ',"payment")', result: r2(inR.filter(e => e.type === 'payment').reduce((s, e) => s + e.amount, 0)) } : 0;
+      ws.getCell(cR, 1).value = dt(to); ws.getCell(cR, 2).value = 'Closing balance'; ws.getRow(cR).font = bold;
+      mem.forEach((m, i) => { ws.getCell(cR, cBal(i)).value = { formula: xlsCol(cBal(i)) + oR + '+' + xlsCol(cShare(i)) + tR, result: run[m] }; });
+      ws.getCell(cR, cCheck).value = { formula: 'ROUND(' + mem.map((m, i) => xlsCol(cBal(i)) + cR).join('+') + ',2)', result: r2(mem.reduce((s, m) => s + run[m], 0)) };
+      for (let c = 1; c <= last; c++) { ws.getCell(cR, c).border = { top: { style: 'thin' }, bottom: { style: 'double' } }; ws.getCell(tR, c).border = { top: { style: 'thin' } }; }
+      ws.getColumn(1).numFmt = 'yyyy-mm-dd'; ws.getColumn(5).numFmt = NUM; for (let c = nF + 1; c <= last; c++) ws.getColumn(c).numFmt = NUM;
+      ws.getCell(1, 1).numFmt = ws.getCell(2, 1).numFmt = 'General';
+      const shareCol = {}; mem.forEach((m, i) => { shareCol[m] = xlsCol(cBal(i)); });
+      tabs.push({ g: g.name, name, mem, rows: inR, rngAmt: rng(E), rngType: rng(D), rngCat: rng(xlsCol(3)), oR, cR, shareCol, close: run, open });
+    });
+    // ── Balances: like the old GroupBalances — each group's closing balance, taken from its tab ──
+    balWs.getCell(1, 1).value = 'Balances — ' + from + ' to ' + to; balWs.getCell(1, 1).font = { bold: true, size: 13 };
+    balWs.getCell(2, 1).value = '+ is owed, − owes. Opening = before ' + from + '; Closing = as of ' + to + '.'; balWs.getCell(2, 1).font = { italic: true, color: { argb: 'FF888888' } };
+    const bh = ['Group'].concat(MEMBERS.map(m => m + ' opening'), MEMBERS.map(m => m + ' closing'), ['Check']);
+    balWs.getRow(4).values = bh; balWs.getRow(4).font = bold; bh.forEach((h, i) => { balWs.getCell(4, i + 1).fill = head; balWs.getColumn(i + 1).width = i ? 15 : 20; });
+    tabs.forEach((t, k) => { const R = 5 + k; balWs.getCell(R, 1).value = t.g;
+      MEMBERS.forEach((m, i) => { const c = t.shareCol[m];
+        balWs.getCell(R, 2 + i).value = c ? { formula: q(t.name) + '!' + c + t.oR, result: t.open[m] } : 0;
+        balWs.getCell(R, 2 + MEMBERS.length + i).value = c ? { formula: q(t.name) + '!' + c + t.cR, result: t.close[m] } : 0; });
+      const a = xlsCol(2 + MEMBERS.length), z = xlsCol(1 + 2 * MEMBERS.length);
+      balWs.getCell(R, 2 + 2 * MEMBERS.length).value = { formula: 'ROUND(SUM(' + a + R + ':' + z + R + '),2)', result: 0 }; });
+    const bT = 5 + tabs.length; balWs.getCell(bT, 1).value = 'Total'; balWs.getRow(bT).font = bold;
+    for (let c = 2; c <= 1 + 2 * MEMBERS.length; c++) { const L = xlsCol(c); balWs.getCell(bT, c).value = tabs.length ? { formula: 'SUM(' + L + '5:' + L + (bT - 1) + ')', result: 0 } : 0; balWs.getCell(bT, c).border = { top: { style: 'thin' }, bottom: { style: 'double' } }; }
+    for (let c = 2; c <= bh.length; c++) balWs.getColumn(c).numFmt = NUM;
+    // ── Categories: spend per category per group for the period, SUMIFS on each group tab ──
+    catWs.getCell(1, 1).value = 'Categories — ' + from + ' to ' + to; catWs.getCell(1, 1).font = { bold: true, size: 13 };
+    let row = 3;
+    [['expense', 'Expenses by category'], ['income', 'Income by category']].forEach(([typ, title]) => {
+      const cats = []; tabs.forEach(t => t.rows.forEach(e => { if (e.type === typ && cats.indexOf(e.category || '') < 0) cats.push(e.category || ''); }));
+      if (!cats.length) return; cats.sort();
+      catWs.getCell(row, 1).value = title; catWs.getCell(row, 1).font = { bold: true, size: 12 }; row++;
+      const ch = ['Category'].concat(tabs.map(t => t.g), ['Total']); catWs.getRow(row).values = ch; catWs.getRow(row).font = bold; ch.forEach((h, i) => { catWs.getCell(row, i + 1).fill = head; catWs.getColumn(i + 1).width = i ? 16 : 24; });
+      const first = ++row;
+      cats.forEach(cat => { catWs.getCell(row, 1).value = cat || '(none)';
+        tabs.forEach((t, i) => { const v = r2(t.rows.filter(e => e.type === typ && (e.category || '') === cat).reduce((s, e) => s + e.amount, 0));
+          catWs.getCell(row, 2 + i).value = t.rows.length ? { formula: 'SUMIFS(' + t.rngAmt + ',' + t.rngType + ',"' + typ + '",' + t.rngCat + ',$A' + row + ')', result: v } : 0; });
+        catWs.getCell(row, 2 + tabs.length).value = { formula: 'SUM(B' + row + ':' + xlsCol(1 + tabs.length) + row + ')', result: 0 }; row++; });
+      // '(none)' rows: SUMIFS on an empty category needs the blank criterion
+      for (let r = first; r < row; r++) if (catWs.getCell(r, 1).value === '(none)') tabs.forEach((t, i) => { const c = catWs.getCell(r, 2 + i); if (c.value && c.value.formula) c.value = { formula: c.value.formula.replace(',$A' + r + ')', ',"")'), result: c.value.result }; });
+      catWs.getCell(row, 1).value = 'Total'; catWs.getRow(row).font = bold;
+      for (let c = 2; c <= 2 + tabs.length; c++) { const L = xlsCol(c); catWs.getCell(row, c).value = { formula: 'SUM(' + L + first + ':' + L + (row - 1) + ')', result: 0 }; catWs.getCell(row, c).border = { top: { style: 'thin' }, bottom: { style: 'double' } }; }
+      for (let c = 2; c <= 2 + tabs.length; c++) catWs.getColumn(c).numFmt = NUM;
+      row += 3;
+    });
+    if (row === 3) catWs.getCell(3, 1).value = 'No expenses or income in this period.';
+    wb.calcProperties = { fullCalcOnLoad: true };   // Excel recomputes every formula when the file opens
+    const fname = ('WeShare_' + (grp || 'all-groups') + '_' + from + '_to_' + to).replace(/[^A-Za-z0-9_.-]+/g, '-') + '.xlsx';
+    const buf = await wb.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })), a = document.createElement('a');
+    a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+    msg.textContent = '✅ Downloaded — ' + tabs.reduce((s, t) => s + t.rows.length, 0) + ' entries';
+  } catch (e) { msg.textContent = '❌ ' + (e.message || e); }
+  btn.disabled = false;
+}
 function closeDateRangeModal() { document.getElementById('dateRangeModal').classList.remove('open'); }
 
 async function loadDateRange() {
