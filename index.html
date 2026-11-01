@@ -1845,8 +1845,10 @@ function renderExpensesPage() {
   const filtered = exps.filter(e => e.date >= cutoffStr);
   const hasMore = exps.length > filtered.length;
   const container = document.getElementById('expensesList');
-  if(filtered.length===0) { container.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div>No transactions found</div></div>'; return; }
-  let html = filtered.map(e=>renderExpItem(e)).join('');
+  /* an empty month still offers the way back (Sarah 2026-11-02: on 2 Nov Airbnb Monthly said «No transactions found» and the
+     «Load previous month» button never showed — the empty message returned before it) */
+  let html = filtered.length ? filtered.map(e=>renderExpItem(e)).join('')
+    : '<div class="empty"><div class="empty-icon">📭</div><div>Nothing yet since ' + cutoff.toLocaleDateString('en-GB',{day:'numeric',month:'long'}) + '</div></div>';
   /* "All N transactions shown" WAS A LIE (Sarah 2026-08-19). This button only ever revealed more of
      what the boot had already put in memory — four months — and once that ran out it announced the
      end of the ledger while older months sat unread in the sheet. Now, when memory is exhausted, it
