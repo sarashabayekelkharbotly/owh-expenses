@@ -1116,7 +1116,7 @@ async function wsExcel() {
     const eRows = await fetchSheet('Expenses!A2:Q20000');
     const all = eRows.filter(r => r[0] && r[0] !== 'DELETED').map(r => ({ id:r[0]||'', group:r[1]||'', date:parseSheetDate(r[2]||''), description:r[3]||'', category:r[4]||'',
       amount:parseFloat(r[5]||0)||0, type:r[7]||'expense', notes:r[8]||'', shares:{ Sarah:parseFloat(r[10]||0)||0, Khaled:parseFloat(r[11]||0)||0, OWH:parseFloat(r[12]||0)||0 },
-      loggedBy:r[13]||'', confirmed:r[15]||'' })).filter(e => !isPend(e) && e.date);
+      loggedBy:r[13]||'', apartment:r[14]||'', confirmed:r[15]||'' })).filter(e => !isPend(e) && e.date);
     if (all.length && eRows.length && eRows[0].length < 16) throw new Error('the server did not send the Confirmed column — try again in a minute');
     const gs = (allGroups && allGroups.length ? allGroups : DEFAULT_GROUPS).filter(g => !grp || g.name === grp);
     msg.textContent = '⏳ Building the workbook…';
@@ -1133,7 +1133,8 @@ async function wsExcel() {
       const open = {}; mem.forEach(m => { open[m] = r2(rows.filter(e => e.date < from).reduce((s, e) => s + (e.shares[m] || 0), 0)); });
       const inR = rows.filter(e => e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
       const name = sheetName(g.name), ws = wb.addWorksheet(name);
-      const fixed = [['Date',11],['Description',32],['Category',16],['Type',9],['Amount',12],['Notes',30],['Logged by',10]];
+      const withApt = rows.some(e => e.apartment);   // Sarah 2026-11-02: the home each entry belongs to
+      const fixed = [['Date',11],['Description',32],['Category',16],['Type',9],['Amount',12]].concat(withApt ? [['Apartment',12]] : [], [['Notes',30],['Logged by',10]]);
       const nF = fixed.length, cShare = (i) => nF + 1 + i, cCheck = nF + mem.length + 1, cBal = (i) => cCheck + 1 + i, last = cCheck + mem.length;
       ws.getCell(1, 1).value = g.name + ' — ' + from + ' to ' + to; ws.getCell(1, 1).font = { bold: true, size: 13 };
       ws.getCell(2, 1).value = 'Shares: + is owed, − owes. Check = sum of the shares (always 0). Balance = row above + this share.'; ws.getCell(2, 1).font = { italic: true, color: { argb: 'FF888888' } };
@@ -1148,7 +1149,7 @@ async function wsExcel() {
       const run = Object.assign({}, open);
       inR.forEach((e, k) => {
         const R = oR + 1 + k;
-        [dt(e.date), e.description, e.category, e.type, e.amount, e.notes, e.loggedBy].forEach((v, i) => { ws.getCell(R, i + 1).value = v; });
+        [dt(e.date), e.description, e.category, e.type, e.amount].concat(withApt ? [e.apartment] : [], [e.notes, e.loggedBy]).forEach((v, i) => { ws.getCell(R, i + 1).value = v; });
         mem.forEach((m, i) => { ws.getCell(R, cShare(i)).value = r2(e.shares[m] || 0); });
         ws.getCell(R, cCheck).value = { formula: 'ROUND(' + mem.map((m, i) => xlsCol(cShare(i)) + R).join('+') + ',2)', result: r2(mem.reduce((s, m) => s + (e.shares[m] || 0), 0)) };
         mem.forEach((m, i) => { run[m] = r2(run[m] + (e.shares[m] || 0)); ws.getCell(R, cBal(i)).value = { formula: xlsCol(cBal(i)) + (R - 1) + '+' + xlsCol(cShare(i)) + R, result: run[m] }; });
