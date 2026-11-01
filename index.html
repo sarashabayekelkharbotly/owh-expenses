@@ -1131,7 +1131,7 @@ async function wsExcel() {
       const mem = MEMBERS.filter(m => (g.members || MEMBERS).indexOf(m) > -1);
       const rows = all.filter(e => e.group === g.name);
       const open = {}; mem.forEach(m => { open[m] = r2(rows.filter(e => e.date < from).reduce((s, e) => s + (e.shares[m] || 0), 0)); });
-      const inR = rows.filter(e => e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+      const inR = rows.filter(e => e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date));   // same day = the order entered (the ledger arrives in entry order; sort is stable) — so a settlement reads 0 and anything logged after it shows up after it
       const name = sheetName(g.name), ws = wb.addWorksheet(name);
       const withApt = rows.some(e => e.apartment);   // Sarah 2026-11-02: the home each entry belongs to
       const fixed = [['Date',11],['Description',32],['Category',16],['Type',9],['Amount',12]].concat(withApt ? [['Apartment',12]] : [], [['Notes',30],['Logged by',10]]);
