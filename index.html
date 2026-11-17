@@ -1418,7 +1418,7 @@ function payerFor(e){
   if (e.type === 'income') {
     const notes = String(e.notes||'');
     if (/received by\s*Khaled/i.test(notes) || /استلمها\s*خالد/.test(notes)) return 'Khaled';
-    if (/received by\s*Sarah/i.test(notes)  || /استلمتها\s*سارة/.test(notes)) return 'Sarah';
+    if (/received by\s*Sarah/i.test(notes)  || /استلمتها\s*سار[ةه]/.test(notes)) return 'Sarah';
   }
   if (e.shares && Number(e.shares.Khaled) > 0) return 'Khaled';
   if (e.shares && Number(e.shares.Sarah)  > 0) return 'Sarah';
