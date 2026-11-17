@@ -2394,9 +2394,9 @@ function settledBlock(x, line, usd, egp){
     '<div style="color:var(--text3);font-size:11px;margin:2px 0 4px">her month result ' + usd(x.result||0) + ' — the part that paid down what she owes OWH</div>';
   h += line('Owed to OWH at the start of the month', owedOpen);
   if((x.setup||0) > 0.005) h += line('+ set-up charged this month', x.setup);
-  if((x.reviewBack||0) > 0.005) h += line('− review bookings she paid, returned to her', -x.reviewBack);
-  if((x.prepay||0) > 0.005) h += line('− her prepayments received', -x.prepay);
-  h += line('− settled through her bookings', -x.settled);
+  if((x.reviewBack||0) > 0.005) h += line('− review bookings she paid, returned to her', x.reviewBack);
+  if((x.prepay||0) > 0.005) h += line('− her prepayments received', x.prepay);
+  h += x.settled >= 0 ? line('− settled through her bookings', x.settled) : line('+ her negative month result, added', -x.settled);
   h += line(owedNow >= 0 ? 'Still owed to OWH' : 'In her favour', Math.abs(owedNow), true);
   return h + '</div>';
 }
