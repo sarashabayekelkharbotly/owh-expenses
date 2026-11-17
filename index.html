@@ -2386,11 +2386,11 @@ async function saveEntry() {
    owes Sarah and Khaled, that part is kept back. Figures from the Hub's statement (latest month); EGP at the Hub's current rate. */
 function partnerHoldNote(group){
   const H = window.partnerHold; if(!H || !H.flats || !Object.keys(H.flats).length || !(group.members||[]).includes('OWH')) return '';
-  const fx = Number(H.fx) || 0, usd = v => '$' + (Math.round(v*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  let fx = Number(H.fx) || 0; const usd = v => '$' + (Math.round(v*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   const egp = v => fx ? ' · ' + Math.round(v*fx).toLocaleString('en-US') + ' EGP' : '';
   const line = (l, v, strong) => '<div style="display:flex;justify-content:space-between;gap:8px'+(strong?';font-weight:900':'')+'"><span>'+l+'</span><span>'+usd(v)+egp(v)+'</span></div>';
   let rows = '', tot = 0;
-  Object.keys(H.flats).forEach(fl => { const x = H.flats[fl], held = (x.float||0) + (x.payable||0) + (x.credit||0); tot += held;
+  Object.keys(H.flats).forEach(fl => { const x = H.flats[fl]; if(x.fx) fx = Number(x.fx); const held = (x.float||0) + (x.payable||0) + (x.credit||0); tot += held;
     rows += '<div style="font-weight:800;margin-top:6px">' + fl + ' owner · statement ' + x.month + '</div>' +
       line('Security float', x.float||0) + line('Payable to her, not yet paid', x.payable||0) + ((x.credit||0) > 0.005 ? line('Balance in her favour', x.credit) : '') +
       ((x.owes||0) > 0.005 ? '<div style="color:var(--text3);font-size:11px">She still owes OWH ' + usd(x.owes) + egp(x.owes) + ' — recovered from her coming results.</div>' : ''); });
