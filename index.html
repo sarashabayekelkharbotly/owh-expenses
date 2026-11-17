@@ -1669,7 +1669,7 @@ async function confirmSelected() {
     });
     pendSel = {};
     renderHome();
-    showToast(`✅ ${j.confirmed} confirmed${j.skipped?` · ${j.skipped} skipped (already done)`:''} — synced to the Hub (cash-only cards — internet, salaries, review bookings, owner payouts — never enter the P&L)`);   // was «will sync to the Hub P&L» on every confirm (2026-11-17)
+    showToast(`✅ ${j.confirmed} confirmed${j.skipped?` · ${j.skipped} skipped (already done)`:''} — synced to the Hub (cash-only cards — internet, Emad, Dani, review bookings, owner payouts — never enter the P&L)`);   // was «will sync to the Hub P&L» on every confirm (2026-11-17)
   } catch(err) {
     showToast('❌ Error: ' + err.message);
     renderHome();                                  // put the button back in a usable state
