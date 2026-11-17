@@ -2384,6 +2384,22 @@ async function saveEntry() {
 /* HELD FOR THE PARTNER OWNER (Sarah 2026-11-17). Mercury and HSBC are OWH's accounts and sit outside WeShare, but part of the cash in them
    is VW1's owner's: her security float, what is payable to her and not yet paid, and any balance in her favour. When OWH transfers what it
    owes Sarah and Khaled, that part is kept back. Figures from the Hub's statement (latest month); EGP at the Hub's current rate. */
+/* WHAT SHE SETTLED THIS MONTH (Sarah 2026-11-17): the part of her month result that paid down what she owes OWH — shown with the whole
+   movement so it adds up: owed at the start + set-up charged − review bookings returned − prepayments − settled from her bookings = owed now. */
+function settledBlock(x, line, usd, egp){
+  if(x.settled == null) return '';
+  const owedOpen = -(x.open||0), owedNow = -((x.credit||0) - (x.owes||0));
+  let h = '<div style="background:#fff;border-radius:8px;padding:6px 8px;margin-top:6px">' +
+    '<div style="display:flex;justify-content:space-between;gap:8px;font-weight:900;color:var(--ok)"><span>Settled through her bookings this month</span><span>' + usd(x.settled) + egp(x.settled) + '</span></div>' +
+    '<div style="color:var(--text3);font-size:11px;margin:2px 0 4px">her month result ' + usd(x.result||0) + ' — the part that paid down what she owes OWH</div>';
+  h += line('Owed to OWH at the start of the month', owedOpen);
+  if((x.setup||0) > 0.005) h += line('+ set-up charged this month', x.setup);
+  if((x.reviewBack||0) > 0.005) h += line('− review bookings she paid, returned to her', -x.reviewBack);
+  if((x.prepay||0) > 0.005) h += line('− her prepayments received', -x.prepay);
+  h += line('− settled through her bookings', -x.settled);
+  h += line(owedNow >= 0 ? 'Still owed to OWH' : 'In her favour', Math.abs(owedNow), true);
+  return h + '</div>';
+}
 function partnerHoldNote(group){
   const H = window.partnerHold; if(!H || !H.flats || !Object.keys(H.flats).length || !(group.members||[]).includes('OWH')) return '';
   let fx = Number(H.fx) || 0; const usd = v => '$' + (Math.round(v*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -2393,7 +2409,7 @@ function partnerHoldNote(group){
   Object.keys(H.flats).forEach(fl => { const x = H.flats[fl]; if(x.fx) fx = Number(x.fx); const held = (x.float||0) + (x.payable||0) + (x.credit||0); tot += held;
     rows += '<div style="font-weight:800;margin-top:6px">' + fl + ' owner · statement ' + x.month + '</div>' +
       line('Security float', x.float||0) + line('Payable to her, not yet paid', x.payable||0) + ((x.credit||0) > 0.005 ? line('Balance in her favour', x.credit) : '') +
-      ((x.owes||0) > 0.005 ? '<div style="color:var(--text3);font-size:11px">She still owes OWH ' + usd(x.owes) + egp(x.owes) + ' — recovered from her coming results.</div>' : ''); });
+      settledBlock(x, line, usd, egp); });
   return '<div style="background:#eef4fb;border:1px solid #c9dcef;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px">' +
     '<div style="font-weight:900">🏦 The partner owner\'s money in OWH\'s accounts</div>' +
     '<div style="color:var(--text3);font-size:11px">Keep this back when OWH transfers to Sarah and Khaled — it is hers, not OWH\'s.</div>' + rows +
