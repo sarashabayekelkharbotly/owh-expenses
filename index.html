@@ -1478,7 +1478,7 @@ function upcomingBlock(upcoming){
   if(!upcoming.length) return '';
   const upTot = upcoming.reduce((a,e) => a + Math.round(e.amount||0), 0);
   let h = `<div class="card" style="margin-bottom:8px;padding:10px;cursor:pointer;opacity:.8" onclick="upcomingOpen=!upcomingOpen;renderHome()">
-    <div style="font-size:12.5px;font-weight:700">📅 ${upcomingOpen?'▾':'◂'} Upcoming this month (${upcoming.length}) · ${upTot.toLocaleString()} EGP</div>
+    <div style="font-size:12.5px;font-weight:700">📅 ${upcomingOpen?'▾':'◂'} Upcoming — not due yet (${upcoming.length}) · ${upTot.toLocaleString()} EGP</div>
     <div style="font-size:10.5px;color:var(--text3);margin-top:2px">بطاقات لسه معاد دفعها ما جاش — بتظهر هنا لحد يومها</div></div>`;
   if(upcomingOpen) upcoming.forEach(e => { h += pendCard(e); });
   return h;
