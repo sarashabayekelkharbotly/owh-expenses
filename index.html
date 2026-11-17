@@ -1318,6 +1318,7 @@ async function loadAllData(force) {
     catch(eBoot) { payload = await callBatched('we_get_all', force); }
     if (!payload || payload.ok !== true) throw new Error('we_get_all failed');
     const D = payload.data || {};
+    window.partnerHold = D.partnerHold || null;   // a partner owner's money in OWH's accounts — shown in the settlement (2026-11-17)
 
     // Categories
     customCategories = (D.categories || []).filter(r=>r[0]).map(r=>r[0].trim());
@@ -2380,6 +2381,24 @@ async function saveEntry() {
 // ============================================================
 // SETTLE MODAL
 // ============================================================
+/* HELD FOR THE PARTNER OWNER (Sarah 2026-11-17). Mercury and HSBC are OWH's accounts and sit outside WeShare, but part of the cash in them
+   is VW1's owner's: her security float, what is payable to her and not yet paid, and any balance in her favour. When OWH transfers what it
+   owes Sarah and Khaled, that part is kept back. Figures from the Hub's statement (latest month); EGP at the Hub's current rate. */
+function partnerHoldNote(group){
+  const H = window.partnerHold; if(!H || !H.flats || !Object.keys(H.flats).length || !(group.members||[]).includes('OWH')) return '';
+  const fx = Number(H.fx) || 0, usd = v => '$' + (Math.round(v*100)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const egp = v => fx ? ' · ' + Math.round(v*fx).toLocaleString('en-US') + ' EGP' : '';
+  const line = (l, v, strong) => '<div style="display:flex;justify-content:space-between;gap:8px'+(strong?';font-weight:900':'')+'"><span>'+l+'</span><span>'+usd(v)+egp(v)+'</span></div>';
+  let rows = '', tot = 0;
+  Object.keys(H.flats).forEach(fl => { const x = H.flats[fl], held = (x.float||0) + (x.payable||0) + (x.credit||0); tot += held;
+    rows += '<div style="font-weight:800;margin-top:6px">' + fl + ' owner · statement ' + x.month + '</div>' +
+      line('Security float', x.float||0) + line('Payable to her, not yet paid', x.payable||0) + ((x.credit||0) > 0.005 ? line('Balance in her favour', x.credit) : '') +
+      ((x.owes||0) > 0.005 ? '<div style="color:var(--text3);font-size:11px">She still owes OWH ' + usd(x.owes) + egp(x.owes) + ' — recovered from her coming results.</div>' : ''); });
+  return '<div style="background:#eef4fb;border:1px solid #c9dcef;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px">' +
+    '<div style="font-weight:900">🏦 The partner owner\'s money in OWH\'s accounts</div>' +
+    '<div style="color:var(--text3);font-size:11px">Keep this back when OWH transfers to Sarah and Khaled — it is hers, not OWH\'s.</div>' + rows +
+    '<div style="border-top:1px solid #c9dcef;margin-top:6px;padding-top:4px">' + line('Keep back', tot, true) + '</div></div>';
+}
 function openSettleModal(groupId) {
   const group = allGroups.find(g=>g.id===groupId);
   if(!group) return;
@@ -2398,7 +2417,7 @@ function openSettleModal(groupId) {
       remaining -= amount; cred.v -= amount;
     });
   });
-  let html = `<div style="font-size:14px;font-weight:900;margin-bottom:12px">${group.name}</div>`;
+  let html = `<div style="font-size:14px;font-weight:900;margin-bottom:12px">${group.name}</div>` + partnerHoldNote(group);
   if(settlements.length===0) { html += `<div style="text-align:center;color:var(--ok);font-weight:700;padding:20px">✅ All settled!</div>`; }
   else {
     html += `<div style="font-size:11px;color:var(--text3);margin-bottom:10px">Amounts are pre-filled — edit if settling partially. Record each separately.</div>`;
